@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="128" fill="#090a0d"/>
+  <rect x="16" y="16" width="480" height="480" rx="112" stroke="#222836" stroke-width="8"/>
+  <circle cx="256" cy="256" r="180" fill="#12151d" stroke="#a3e635" stroke-width="6" stroke-dasharray="8 8"/>
+  <circle cx="160" cy="310" r="54" stroke="#a3e635" stroke-width="14" fill="#090a0d"/>
+  <circle cx="352" cy="310" r="54" stroke="#a3e635" stroke-width="14" fill="#090a0d"/>
+  <circle cx="160" cy="310" r="20" fill="#a3e635"/>
+  <circle cx="352" cy="310" r="20" fill="#a3e635"/>
+  <path d="M160 310 L220 220 L300 220 L352 310" stroke="#f1f5f9" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M220 220 L240 170 L280 170" stroke="#a3e635" stroke-width="14" stroke-linecap="round"/>
+  <path d="M220 220 L270 310" stroke="#64748b" stroke-width="10"/>
+  <text x="256" y="125" text-anchor="middle" font-family="Space Grotesk, Arial, sans-serif" font-weight="900" font-size="38" fill="#a3e635" letter-spacing="4">HUNTER 350</text>
+  <text x="256" y="425" text-anchor="middle" font-family="JetBrains Mono, monospace" font-weight="700" font-size="28" fill="#f1f5f9" letter-spacing="3">₹1,30,000 FUND</text>
+</svg>
+
