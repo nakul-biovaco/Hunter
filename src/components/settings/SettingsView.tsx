@@ -8,15 +8,21 @@ import {
   Bike,
   Bell,
   BellRing,
+  Moon,
+  Zap,
+  Smartphone,
+  Clock,
 } from 'lucide-react';
 import { useHunter } from '../../context/HunterContext';
 import { Button } from '../common/Button';
 import { GoalType } from '../../types';
+import { formatINR } from '../../lib/formatters';
 
 export const SettingsView: React.FC = () => {
   const {
     goal,
     updateGoal,
+    metrics,
     exportTransactionsCSV,
     exportReportCSV,
     isSupabaseOnline,
@@ -25,8 +31,14 @@ export const SettingsView: React.FC = () => {
     setNotificationsEnabled,
     reminderTime,
     setReminderTime,
+    hourlyRemindersEnabled,
+    setHourlyRemindersEnabled,
+    quietHoursEnabled,
+    setQuietHoursEnabled,
     testNotification,
     scheduleBackgroundTest,
+    testHourlyReminder,
+    scheduleBackgroundHourlyTest,
   } = useHunter();
 
   const [targetAmount, setTargetAmount] = useState(String(goal.target_amount));
@@ -343,15 +355,15 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
       </div>
 
       {/* Push Notifications Card */}
-      <div className="bg-white border border-slate-200/80 rounded-3xl p-5 space-y-3 shadow-card">
+      <div className="bg-white border border-slate-200/80 rounded-3xl p-5 space-y-4 shadow-card">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-700 flex items-center justify-center">
               <Bell className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900">Daily Push Notifications</h3>
-              <p className="text-[11px] text-slate-500">Phone alerts to keep your savings habit</p>
+              <h3 className="text-sm font-bold text-slate-900">Push Notifications & Reminders</h3>
+              <p className="text-[11px] text-slate-500">Phone alerts with exact calculated savings</p>
             </div>
           </div>
           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${notificationsEnabled ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
@@ -359,11 +371,39 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
           </span>
         </div>
 
-        <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 space-y-3">
+        {/* Dynamic Status Pill */}
+        {(() => {
+          const needed = Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings);
+          const isMet = needed <= 0 && metrics.todayPlannedSavings > 0;
+          return (
+            <div className={`p-3 rounded-2xl border ${
+              isMet
+                ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900'
+                : 'bg-amber-50/80 border-amber-200 text-amber-900'
+            }`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider">
+                  {isMet ? '✅ Aaj Ka Target Complete' : '⏳ Aaj Ka Deposit Pending'}
+                </span>
+                <span className="text-xs font-black font-mono">
+                  {isMet ? 'Saved!' : `₹${needed.toLocaleString('en-IN')} Baaki`}
+                </span>
+              </div>
+              <p className="text-[11px] opacity-90 leading-relaxed">
+                {isMet
+                  ? `Aaj ka target ₹${metrics.todayPlannedSavings.toLocaleString('en-IN')} pura save ho gaya hai. Hourly reminder pause ho chuka hai!`
+                  : `Calculated Target: ₹${metrics.todayPlannedSavings.toLocaleString('en-IN')}. Jab tak aap entry nahi karenge, background me harr ghante push notification aayega.`}
+              </p>
+            </div>
+          );
+        })()}
+
+        {/* Master Toggle & Controls */}
+        <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 space-y-3.5">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-bold text-slate-900">Daily Reminder</p>
-              <p className="text-[10px] text-slate-500">Prompt to deposit daily amount</p>
+              <p className="text-xs font-bold text-slate-900">Push Notifications</p>
+              <p className="text-[10px] text-slate-500">System tray & phone lock screen alerts</p>
             </div>
             <Button
               type="button"
@@ -378,8 +418,49 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
             </Button>
           </div>
 
-          <div className="flex items-center justify-between pt-2 border-t border-slate-200">
-            <span className="text-xs text-slate-600">Reminder Time</span>
+          {/* Hourly Reminder Toggle */}
+          <div className="flex items-center justify-between pt-2.5 border-t border-slate-200">
+            <div>
+              <div className="flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-emerald-700" />
+                <p className="text-xs font-bold text-slate-900">Har Ghante Reminder</p>
+              </div>
+              <p className="text-[10px] text-slate-500">Jab tak aaj deposit entry na ho tab tak har ghante alert</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setHourlyRemindersEnabled(!hourlyRemindersEnabled)}
+              className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors ${
+                hourlyRemindersEnabled ? 'bg-emerald-600 justify-end' : 'bg-slate-300 justify-start'
+              }`}
+            >
+              <span className="bg-white w-4 h-4 rounded-full shadow-md transform transition" />
+            </button>
+          </div>
+
+          {/* Quiet Hours Toggle */}
+          <div className="flex items-center justify-between pt-2.5 border-t border-slate-200">
+            <div>
+              <div className="flex items-center gap-1.5">
+                <Moon className="w-3.5 h-3.5 text-slate-600" />
+                <p className="text-xs font-bold text-slate-900">Raat Ka Mute (11 PM - 8 AM)</p>
+              </div>
+              <p className="text-[10px] text-slate-500">Raat me neend ke samay notification disturb nahi karega</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setQuietHoursEnabled(!quietHoursEnabled)}
+              className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors ${
+                quietHoursEnabled ? 'bg-emerald-600 justify-end' : 'bg-slate-300 justify-start'
+              }`}
+            >
+              <span className="bg-white w-4 h-4 rounded-full shadow-md transform transition" />
+            </button>
+          </div>
+
+          {/* Fixed Time Setting */}
+          <div className="flex items-center justify-between pt-2.5 border-t border-slate-200">
+            <span className="text-xs text-slate-600">Daily Digest Time</span>
             <input
               type="time"
               value={reminderTime}
@@ -390,52 +471,58 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
         </div>
 
         {/* Test Buttons */}
-        <div className="pt-1">
-          <p className="text-[11px] text-slate-500 mb-2">
-            Click <strong>Test in Background</strong>, then minimize the browser. A notification will appear in 6 seconds!
+        <div className="pt-1 space-y-2">
+          <p className="text-[11px] text-slate-500">
+            Push notification aur calculated amount check karne ke liye test karein:
           </p>
           <div className="grid grid-cols-2 gap-2">
             <Button
               type="button"
               variant="secondary"
               size="sm"
+              icon={<Zap className="w-3.5 h-3.5 text-amber-600" />}
               onClick={async () => {
-                const res = await testNotification();
+                const res = await testHourlyReminder();
                 if (res.permission === 'denied') {
-                  setNotificationStatusMsg('⚠️ Notifications blocked in browser. Click the lock icon in the address bar to allow.');
+                  setNotificationStatusMsg('⚠️ Notifications browser me block hain. Address bar me lock icon 🔒 click karke Allow karein.');
                 } else {
-                  setNotificationStatusMsg('✅ Instant test notification sent!');
+                  setNotificationStatusMsg(`✅ Test notification bheja gaya! (Amount: ₹${(Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings) || metrics.todayPlannedSavings).toLocaleString('en-IN')})`);
                 }
                 setTimeout(() => setNotificationStatusMsg(''), 6000);
               }}
             >
-              Instant Test
+              Test Abhi Bhejo
             </Button>
 
             <Button
               type="button"
               variant="primary"
               size="sm"
+              icon={<Smartphone className="w-3.5 h-3.5" />}
               onClick={async () => {
-                const res = await scheduleBackgroundTest(6);
-                setNotificationStatusMsg(res.message || 'Notification scheduled! Abhi tab minimize karein.');
-                setTimeout(() => setNotificationStatusMsg(''), 8000);
+                const res = await scheduleBackgroundHourlyTest(10);
+                if (res.permission === 'denied') {
+                  setNotificationStatusMsg('⚠️ Notifications blocked in browser. Click 🔒 lock icon to allow.');
+                } else {
+                  setNotificationStatusMsg('📱 10s me aayega! Abhi browser MINIMIZE ya LOCK karein!');
+                }
+                setTimeout(() => setNotificationStatusMsg(''), 9000);
               }}
             >
-              Background (6s)
+              Background (10s)
             </Button>
           </div>
         </div>
 
         {notificationStatusMsg && (
-          <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 font-medium">
+          <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 font-medium animate-fadeIn">
             {notificationStatusMsg}
           </div>
         )}
 
         {currentPermission === 'denied' && (
-          <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
-            <strong>Notifications blocked:</strong> Click 🔒 in address bar & set Notifications to "Allow".
+          <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-800">
+            <strong>⚠️ Notifications Blocked:</strong> Browser address bar me lock icon 🔒 par click karein aur Notifications: <strong>"Allow"</strong> select karein.
           </div>
         )}
       </div>

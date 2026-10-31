@@ -28,7 +28,11 @@ import {
   scheduleBackgroundNotification,
   sendMilestoneNotification,
   sendDailyReminderNotification,
+  sendHourlyDepositReminder,
+  scheduleBackgroundHourlyTest,
+  syncHourlyReminderWithServiceWorker,
 } from '../lib/notifications';
+import { getTodayString } from '../lib/formatters';
 
 interface HunterContextType {
   activePage: ActivePage;
@@ -66,8 +70,14 @@ interface HunterContextType {
   setNotificationsEnabled: (enabled: boolean) => Promise<boolean>;
   reminderTime: string;
   setReminderTime: (time: string) => void;
+  hourlyRemindersEnabled: boolean;
+  setHourlyRemindersEnabled: (enabled: boolean) => void;
+  quietHoursEnabled: boolean;
+  setQuietHoursEnabled: (enabled: boolean) => void;
   testNotification: () => Promise<any>;
   scheduleBackgroundTest: (delaySeconds?: number) => Promise<any>;
+  testHourlyReminder: () => Promise<any>;
+  scheduleBackgroundHourlyTest: (delaySeconds?: number) => Promise<any>;
 }
 
 const HunterContext = createContext<HunterContextType | undefined>(undefined);
@@ -146,7 +156,15 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const saved = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // If initial seed was dated today, migrate to yesterday so today starts clean with ₹0 actual savings
+          return parsed.map((t: Transaction) => {
+            if (t.id === 'tx-seed-001' && t.transaction_date === '2026-10-31') {
+              return { ...t, transaction_date: '2026-10-30', note: 'Previous savings balance' };
+            }
+            return t;
+          });
+        }
       }
       return initialTransactions;
     } catch {
@@ -214,6 +232,26 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [reminderTime, setReminderTimeState] = useState<string>(() => {
     return localStorage.getItem('hunter_fund_reminder_time') || '20:00';
   });
+
+  const [hourlyRemindersEnabled, setHourlyRemindersEnabledState] = useState<boolean>(() => {
+    const saved = localStorage.getItem('hunter_fund_hourly_reminders');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const [quietHoursEnabled, setQuietHoursEnabledState] = useState<boolean>(() => {
+    const saved = localStorage.getItem('hunter_fund_quiet_hours');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const setHourlyRemindersEnabled = useCallback((enabled: boolean) => {
+    setHourlyRemindersEnabledState(enabled);
+    localStorage.setItem('hunter_fund_hourly_reminders', enabled ? 'true' : 'false');
+  }, []);
+
+  const setQuietHoursEnabled = useCallback((enabled: boolean) => {
+    setQuietHoursEnabledState(enabled);
+    localStorage.setItem('hunter_fund_quiet_hours', enabled ? 'true' : 'false');
+  }, []);
 
   const setNotificationsEnabled = useCallback(async (enabled: boolean): Promise<boolean> => {
     if (enabled) {
@@ -310,6 +348,27 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return calculateMetrics(goal, transactions);
   }, [goal, transactions]);
 
+  const testHourlyReminder = useCallback(async () => {
+    const needed = Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings);
+    return sendHourlyDepositReminder({
+      neededToday: needed > 0 ? needed : metrics.todayPlannedSavings,
+      todayPlannedSavings: metrics.todayPlannedSavings,
+      todayActualSavings: metrics.todayActualSavings,
+      bikeModel: goal.bike_model,
+    });
+  }, [metrics, goal.bike_model]);
+
+  const scheduleBackgroundHourlyTestCallback = useCallback(async (delaySeconds: number = 10) => {
+    const needed = Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings);
+    return scheduleBackgroundHourlyTest({
+      delaySeconds,
+      neededToday: needed > 0 ? needed : metrics.todayPlannedSavings,
+      todayPlannedSavings: metrics.todayPlannedSavings,
+      todayActualSavings: metrics.todayActualSavings,
+      bikeModel: goal.bike_model,
+    });
+  }, [metrics, goal.bike_model]);
+
   // Loan calculation
   const loanCalculation = useMemo(() => {
     return calculateLoan(
@@ -319,6 +378,102 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       loanPlan.processing_fee
     );
   }, [loanPlan]);
+
+  // Sync Hourly Reminder configuration with Service Worker
+  useEffect(() => {
+    const neededToday = Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings);
+    syncHourlyReminderWithServiceWorker({
+      enabled: notificationsEnabled && hourlyRemindersEnabled,
+      todayPlannedSavings: metrics.todayPlannedSavings,
+      todayActualSavings: metrics.todayActualSavings,
+      neededToday,
+      todayDate: getTodayString(),
+      bikeModel: goal.bike_model,
+      intervalMinutes: 60,
+      quietHoursEnabled,
+      quietHoursStart: 23,
+      quietHoursEnd: 8,
+    });
+  }, [
+    notificationsEnabled,
+    hourlyRemindersEnabled,
+    quietHoursEnabled,
+    metrics.todayPlannedSavings,
+    metrics.todayActualSavings,
+    goal.bike_model,
+  ]);
+
+  // In-page Hourly Watchdog: Checks periodically if today's deposit is pending
+  useEffect(() => {
+    if (!notificationsEnabled || !hourlyRemindersEnabled) return;
+
+    const checkHourlyStatus = () => {
+      const neededToday = Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings);
+      // If already saved or deposited today, do not alert
+      if (neededToday <= 0) return;
+
+      if (quietHoursEnabled) {
+        const hour = new Date().getHours();
+        if (hour >= 23 || hour < 8) return;
+      }
+
+      const lastAlert = Number(localStorage.getItem('hunter_fund_last_hourly_alert')) || 0;
+      const now = Date.now();
+      // Send reminder if >= 55 minutes have passed since last hourly alert
+      if (now - lastAlert >= 55 * 60 * 1000) {
+        localStorage.setItem('hunter_fund_last_hourly_alert', now.toString());
+        sendHourlyDepositReminder({
+          neededToday,
+          todayPlannedSavings: metrics.todayPlannedSavings,
+          todayActualSavings: metrics.todayActualSavings,
+          bikeModel: goal.bike_model,
+        });
+      }
+    };
+
+    const interval = setInterval(checkHourlyStatus, 30000);
+    return () => clearInterval(interval);
+  }, [
+    notificationsEnabled,
+    hourlyRemindersEnabled,
+    quietHoursEnabled,
+    metrics.todayPlannedSavings,
+    metrics.todayActualSavings,
+    goal.bike_model,
+  ]);
+
+  // Handle Quick Deposit action from notifications and deep links
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('action') === 'quick-deposit') {
+        setIsQuickAddOpen(true);
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'OPEN_QUICK_ADD') {
+        setIsQuickAddOpen(true);
+      }
+    };
+
+    const handleCustomOpen = () => {
+      setIsQuickAddOpen(true);
+    };
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    }
+    window.addEventListener('hunter-open-quick-add', handleCustomOpen);
+
+    return () => {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+      }
+      window.removeEventListener('hunter-open-quick-add', handleCustomOpen);
+    };
+  }, []);
 
   // Celebration helper
   const triggerCelebration = useCallback(() => {
@@ -623,8 +778,14 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setNotificationsEnabled,
         reminderTime,
         setReminderTime,
+        hourlyRemindersEnabled,
+        setHourlyRemindersEnabled,
+        quietHoursEnabled,
+        setQuietHoursEnabled,
         testNotification,
         scheduleBackgroundTest,
+        testHourlyReminder,
+        scheduleBackgroundHourlyTest: scheduleBackgroundHourlyTestCallback,
       }}
     >
       {children}
