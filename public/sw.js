@@ -129,12 +129,15 @@ async function triggerHourlyNotificationIfPending(stateOverride) {
   const actual = Number(state.todayActualSavings) || 0;
   const bikeName = state.bikeModel || 'Royal Enfield Hunter 350';
 
-  let title = `🏍️ ${bikeName}: ₹${neededToday.toLocaleString('en-IN')} Save Karna Baki Hai!`;
-  let body = `Aaj ka target ₹${planned.toLocaleString('en-IN')} hai. 10 Jan 2027 tak apni bike lene ke liye abhi deposit add karein!`;
+  let title;
+  let body;
 
   if (actual > 0) {
-    title = `🏍️ ${bikeName}: ₹${neededToday.toLocaleString('en-IN')} Aur Save Karein!`;
-    body = `Aaj ₹${actual.toLocaleString('en-IN')} save ho chuke hain. Baaki ₹${neededToday.toLocaleString('en-IN')} deposit karke aaj ka goal complete karein!`;
+    title = `₹${neededToday.toLocaleString('en-IN')} remaining — ${bikeName}`;
+    body = `You've saved ₹${actual.toLocaleString('en-IN')} today. Add ₹${neededToday.toLocaleString('en-IN')} more to achieve your daily target of ₹${planned.toLocaleString('en-IN')}.`;
+  } else {
+    title = `₹${neededToday.toLocaleString('en-IN')} to save today — ${bikeName}`;
+    body = `Today's savings target is ₹${planned.toLocaleString('en-IN')}. Record your deposit to stay on schedule.`;
   }
 
   await self.registration.showNotification(title, {
@@ -152,8 +155,8 @@ async function triggerHourlyNotificationIfPending(stateOverride) {
       timestamp: Date.now(),
     },
     actions: [
-      { action: 'quick-deposit', title: '💰 Save Now' },
-      { action: 'open', title: 'Open App 🏍️' }
+      { action: 'quick-deposit', title: 'Record Deposit' },
+      { action: 'open', title: 'Open App' }
     ]
   });
 
@@ -213,8 +216,8 @@ self.addEventListener('push', (event) => {
     vibrate: [200, 100, 200],
     data: { url: data.url || '/?action=quick-deposit' },
     actions: [
-      { action: 'quick-deposit', title: '💰 Save Now' },
-      { action: 'open', title: 'Open App 🏍️' }
+      { action: 'quick-deposit', title: 'Record Deposit' },
+      { action: 'open', title: 'Open App' }
     ]
   };
 
@@ -252,8 +255,8 @@ self.addEventListener('message', async (event) => {
     const { delayMs, title, body, icon, badge, data } = event.data;
 
     setTimeout(async () => {
-      await self.registration.showNotification(title || '🏍️ Hunter Fund: Reminder', {
-        body: body || 'Savings reminder for your Royal Enfield Hunter 350!',
+      await self.registration.showNotification(title || 'Hunter Fund — Reminder', {
+        body: body || 'Savings reminder for your Royal Enfield Hunter 350.',
         icon: icon || '/icon-192.svg',
         badge: badge || '/icon-192.svg',
         tag: 'hourly-deposit-reminder',
@@ -261,8 +264,8 @@ self.addEventListener('message', async (event) => {
         vibrate: [250, 100, 250, 100, 250],
         data: data || { url: '/?action=quick-deposit' },
         actions: [
-          { action: 'quick-deposit', title: '💰 Save Now' },
-          { action: 'open', title: 'Open App 🏍️' }
+          { action: 'quick-deposit', title: 'Record Deposit' },
+          { action: 'open', title: 'Open App' }
         ]
       });
     }, delayMs || 6000);

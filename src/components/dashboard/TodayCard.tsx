@@ -89,12 +89,12 @@ export const TodayCard: React.FC = () => {
             )}
             <span className="text-[11px] font-medium">
               {isTargetAchievedToday
-                ? 'Target achieved — Hourly reminder paused!'
-                : `Hourly reminder: ₹${neededToday.toLocaleString('en-IN')} pending`}
+                ? 'Target achieved — Hourly reminders paused'
+                : `Hourly reminders active — ₹${neededToday.toLocaleString('en-IN')} pending`}
             </span>
           </div>
           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white/70">
-            {isTargetAchievedToday ? 'Paused' : '1h Loop'}
+            {isTargetAchievedToday ? 'Paused' : 'Active'}
           </span>
         </div>
       )}

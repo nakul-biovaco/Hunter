@@ -76,7 +76,7 @@ export function calculateMetrics(
     dailyRequiredSavings = 0;
     weeklyRequiredSavings = 0;
   } else if (daysRemaining > 0) {
-    dailyRequiredSavings = remainingAmount / daysRemaining;
+    dailyRequiredSavings = Math.ceil(remainingAmount / daysRemaining);
     weeklyRequiredSavings = dailyRequiredSavings * 7;
   } else {
     // Target date has arrived or passed and target not achieved
@@ -87,10 +87,10 @@ export function calculateMetrics(
   // Today's Actual Savings
   const todayActualSavings = todayDeposits - todayWithdrawals;
 
-  // Today's Planned Savings (default is the daily required savings, or custom daily target if set)
-  const todayPlannedSavings = Math.round(dailyRequiredSavings);
+  // Today's Planned Savings matches the daily required savings exactly
+  const todayPlannedSavings = dailyRequiredSavings;
 
-  // Daily Surplus / Deficit
+  // Daily Surplus / Deficit relative to daily required goal
   const dailySurplusDeficit = todayActualSavings - dailyRequiredSavings;
 
   // Projected Target Completion Date based on average daily savings rate

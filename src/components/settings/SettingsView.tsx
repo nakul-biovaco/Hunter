@@ -383,16 +383,16 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
             }`}>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[11px] font-bold uppercase tracking-wider">
-                  {isMet ? '✅ Aaj Ka Target Complete' : '⏳ Aaj Ka Deposit Pending'}
+                  {isMet ? 'Target Completed for Today' : 'Deposit Pending for Today'}
                 </span>
                 <span className="text-xs font-black font-mono">
-                  {isMet ? 'Saved!' : `₹${needed.toLocaleString('en-IN')} Baaki`}
+                  {isMet ? 'Saved' : `₹${needed.toLocaleString('en-IN')} Remaining`}
                 </span>
               </div>
               <p className="text-[11px] opacity-90 leading-relaxed">
                 {isMet
-                  ? `Aaj ka target ₹${metrics.todayPlannedSavings.toLocaleString('en-IN')} pura save ho gaya hai. Hourly reminder pause ho chuka hai!`
-                  : `Calculated Target: ₹${metrics.todayPlannedSavings.toLocaleString('en-IN')}. Jab tak aap entry nahi karenge, background me harr ghante push notification aayega.`}
+                  ? `Today's target of ₹${metrics.todayPlannedSavings.toLocaleString('en-IN')} has been fulfilled. Hourly reminders are paused until tomorrow.`
+                  : `Target: ₹${metrics.todayPlannedSavings.toLocaleString('en-IN')} needed today. Background hourly notifications remain active until your deposit is recorded.`}
               </p>
             </div>
           );
@@ -403,7 +403,7 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-bold text-slate-900">Push Notifications</p>
-              <p className="text-[10px] text-slate-500">System tray & phone lock screen alerts</p>
+              <p className="text-[10px] text-slate-500">Device lock screen and system tray alerts</p>
             </div>
             <Button
               type="button"
@@ -414,7 +414,7 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
               }}
               icon={<BellRing className="w-3.5 h-3.5" />}
             >
-              {notificationsEnabled ? 'Turn Off' : 'Turn On'}
+              {notificationsEnabled ? 'Disable' : 'Enable'}
             </Button>
           </div>
 
@@ -423,9 +423,9 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
             <div>
               <div className="flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-emerald-700" />
-                <p className="text-xs font-bold text-slate-900">Har Ghante Reminder</p>
+                <p className="text-xs font-bold text-slate-900">Hourly Deposit Reminders</p>
               </div>
-              <p className="text-[10px] text-slate-500">Jab tak aaj deposit entry na ho tab tak har ghante alert</p>
+              <p className="text-[10px] text-slate-500">Alerts repeat every hour until today's deposit is recorded</p>
             </div>
             <button
               type="button"
@@ -443,9 +443,9 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
             <div>
               <div className="flex items-center gap-1.5">
                 <Moon className="w-3.5 h-3.5 text-slate-600" />
-                <p className="text-xs font-bold text-slate-900">Raat Ka Mute (11 PM - 8 AM)</p>
+                <p className="text-xs font-bold text-slate-900">Quiet Hours (11:00 PM – 8:00 AM)</p>
               </div>
-              <p className="text-[10px] text-slate-500">Raat me neend ke samay notification disturb nahi karega</p>
+              <p className="text-[10px] text-slate-500">Mutes overnight alerts to avoid sleep interruptions</p>
             </div>
             <button
               type="button"
@@ -473,7 +473,7 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
         {/* Test Buttons */}
         <div className="pt-1 space-y-2">
           <p className="text-[11px] text-slate-500">
-            Push notification aur calculated amount check karne ke liye test karein:
+            Verify push delivery and live calculated amount on your device:
           </p>
           <div className="grid grid-cols-2 gap-2">
             <Button
@@ -484,14 +484,14 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
               onClick={async () => {
                 const res = await testHourlyReminder();
                 if (res.permission === 'denied') {
-                  setNotificationStatusMsg('⚠️ Notifications browser me block hain. Address bar me lock icon 🔒 click karke Allow karein.');
+                  setNotificationStatusMsg('Notifications are blocked. Click the lock icon in the address bar and select "Allow".');
                 } else {
-                  setNotificationStatusMsg(`✅ Test notification bheja gaya! (Amount: ₹${(Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings) || metrics.todayPlannedSavings).toLocaleString('en-IN')})`);
+                  setNotificationStatusMsg(`Test notification sent (Amount: ₹${(Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings) || metrics.todayPlannedSavings).toLocaleString('en-IN')}).`);
                 }
                 setTimeout(() => setNotificationStatusMsg(''), 6000);
               }}
             >
-              Test Abhi Bhejo
+              Send Test Now
             </Button>
 
             <Button
@@ -502,9 +502,9 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
               onClick={async () => {
                 const res = await scheduleBackgroundHourlyTest(10);
                 if (res.permission === 'denied') {
-                  setNotificationStatusMsg('⚠️ Notifications blocked in browser. Click 🔒 lock icon to allow.');
+                  setNotificationStatusMsg('Notifications are blocked in your browser. Click the lock icon to allow.');
                 } else {
-                  setNotificationStatusMsg('📱 10s me aayega! Abhi browser MINIMIZE ya LOCK karein!');
+                  setNotificationStatusMsg('Scheduled! Minimize or lock your screen now to see the background notification in 10s.');
                 }
                 setTimeout(() => setNotificationStatusMsg(''), 9000);
               }}
@@ -522,7 +522,7 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
 
         {currentPermission === 'denied' && (
           <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-800">
-            <strong>⚠️ Notifications Blocked:</strong> Browser address bar me lock icon 🔒 par click karein aur Notifications: <strong>"Allow"</strong> select karein.
+            <strong>Notifications Blocked:</strong> Click the lock icon 🔒 in your browser address bar and change Notifications to <strong>"Allow"</strong>.
           </div>
         )}
       </div>

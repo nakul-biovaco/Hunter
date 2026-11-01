@@ -491,9 +491,9 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Milestones calculation
   const milestones: MilestoneStatus[] = useMemo(() => {
-    const sortedTx = [...transactions]
-      .filter((t) => t.transaction_type === 'deposit')
-      .sort((a, b) => new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime());
+    const sortedTx = [...transactions].sort(
+      (a, b) => new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime()
+    );
 
     return DEFAULT_MILESTONES.map((m) => {
       const isAchieved = metrics.currentBalance >= m.amount;
@@ -505,7 +505,11 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (isAchieved) {
         let runningBal = Number(goal.opening_balance) || 0;
         for (const t of sortedTx) {
-          runningBal += Number(t.amount);
+          if (t.transaction_type === 'deposit') {
+            runningBal += Number(t.amount);
+          } else if (t.transaction_type === 'withdrawal') {
+            runningBal -= Number(t.amount);
+          }
           if (runningBal >= m.amount) {
             achievedDate = t.transaction_date;
             break;

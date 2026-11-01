@@ -1,5 +1,5 @@
 // Web Push & Local Notification Manager for Hunter Fund
-// Includes Background Hourly Reminder Engine for unrecorded daily deposits
+// Background Hourly Reminder Engine — sends reminders until today's deposit target is met
 
 export interface HourlyReminderState {
   enabled: boolean;
@@ -63,7 +63,7 @@ export async function sendNotification({
   vibrate = [250, 100, 250, 100, 250],
   data,
 }: NotificationPayload): Promise<NotificationResult> {
-  // Always trigger in-app banner fallback so user never misses it
+  // Always trigger in-app banner fallback
   if (typeof window !== 'undefined') {
     window.dispatchEvent(
       new CustomEvent('hunter-inapp-notification', {
@@ -76,7 +76,7 @@ export async function sendNotification({
     return {
       success: false,
       permission: 'denied',
-      message: 'Browser does not support the Web Notification API.',
+      message: 'Your browser does not support push notifications.',
     };
   }
 
@@ -91,14 +91,14 @@ export async function sendNotification({
       permission,
       message:
         permission === 'denied'
-          ? 'Notification permission is blocked. Please enable notifications in your browser address bar (lock icon).'
+          ? 'Notifications are blocked. Tap the lock icon in your address bar and set Notifications to "Allow".'
           : 'Notification permission was dismissed.',
     };
   }
 
   let shown = false;
 
-  // 1. Try Service Worker first (handles mobile Chrome/Android and desktop best with actions & vibration)
+  // 1. Service Worker notification (best for mobile & background delivery)
   if ('serviceWorker' in navigator) {
     try {
       const reg = await Promise.race([
@@ -116,18 +116,18 @@ export async function sendNotification({
           vibrate,
           data: data || { url: '/?action=quick-deposit' },
           actions: [
-            { action: 'quick-deposit', title: '💰 Save Now' },
-            { action: 'open', title: 'Open App 🏍️' }
+            { action: 'quick-deposit', title: 'Record Deposit' },
+            { action: 'open', title: 'Open App' }
           ]
         } as any);
         shown = true;
       }
     } catch {
-      // SW notification fallback
+      // Service worker fallback
     }
   }
 
-  // 2. Fallback to standard browser Notification constructor if SW didn't show
+  // 2. Fallback to standard Notification constructor
   if (!shown) {
     try {
       const notification = new Notification(title, {
@@ -146,7 +146,7 @@ export async function sendNotification({
       };
       shown = true;
     } catch {
-      // standard constructor fallback
+      // Standard constructor fallback
     }
   }
 
@@ -154,14 +154,13 @@ export async function sendNotification({
     success: shown,
     permission,
     message: shown
-      ? 'Notification sent successfully!'
-      : 'Notification dispatched to system tray.',
+      ? 'Notification delivered successfully.'
+      : 'Notification dispatched to system.',
   };
 }
 
 /**
- * Synchronizes the hourly reminder configuration with the Service Worker background daemon.
- * Ensures the Service Worker background alarm keeps ticking even when the tab is sleeping.
+ * Syncs hourly reminder state with the Service Worker background daemon.
  */
 export async function syncHourlyReminderWithServiceWorker(state: HourlyReminderState): Promise<void> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
@@ -175,17 +174,17 @@ export async function syncHourlyReminderWithServiceWorker(state: HourlyReminderS
       });
     }
 
-    // Try Periodic Sync if available (PWA on Android / Chromium)
+    // Periodic Sync API (Android PWA / Chromium)
     if ('periodicSync' in reg && state.enabled) {
       try {
         const tags = await (reg as any).periodicSync.getTags();
         if (!tags.includes('hourly-deposit-reminder')) {
           await (reg as any).periodicSync.register('hourly-deposit-reminder', {
-            minInterval: 60 * 60 * 1000, // 1 hour
+            minInterval: 60 * 60 * 1000,
           });
         }
       } catch {
-        // Periodic sync permission or standalone requirement
+        // Periodic sync requires standalone PWA mode
       }
     }
   } catch (err) {
@@ -194,7 +193,7 @@ export async function syncHourlyReminderWithServiceWorker(state: HourlyReminderS
 }
 
 /**
- * Fires an hourly reminder notification immediately with the exact calculated savings amounts.
+ * Sends an hourly deposit reminder with the exact calculated savings amounts.
  */
 export async function sendHourlyDepositReminder({
   neededToday,
@@ -211,12 +210,15 @@ export async function sendHourlyDepositReminder({
   const needed = Math.round(neededToday);
   const actual = Math.round(todayActualSavings);
 
-  let title = `🏍️ ${bikeModel}: ₹${needed.toLocaleString('en-IN')} Save Karna Baki Hai!`;
-  let body = `Aaj ka target ₹${planned.toLocaleString('en-IN')} hai. 10 Jan 2027 tak apni Hunter 350 Graphite Grey lene ke liye abhi deposit karein!`;
+  let title: string;
+  let body: string;
 
   if (actual > 0) {
-    title = `🏍️ ${bikeModel}: ₹${needed.toLocaleString('en-IN')} Aur Save Karein!`;
-    body = `Aaj ₹${actual.toLocaleString('en-IN')} save ho chuke hain, baaki ₹${needed.toLocaleString('en-IN')} deposit karke aaj ka goal pura karein!`;
+    title = `₹${needed.toLocaleString('en-IN')} remaining — ${bikeModel}`;
+    body = `You've saved ₹${actual.toLocaleString('en-IN')} today. Record ₹${needed.toLocaleString('en-IN')} more to hit your daily target of ₹${planned.toLocaleString('en-IN')}.`;
+  } else {
+    title = `₹${needed.toLocaleString('en-IN')} to save today — ${bikeModel}`;
+    body = `Today's target is ₹${planned.toLocaleString('en-IN')}. Record your deposit to stay on track for 10 Jan 2027.`;
   }
 
   return sendNotification({
@@ -229,7 +231,7 @@ export async function sendHourlyDepositReminder({
 }
 
 /**
- * Schedules a background test notification in X seconds so user can minimize/lock phone and see it pop up.
+ * Schedules a background test notification after a delay.
  */
 export async function scheduleBackgroundHourlyTest({
   delaySeconds = 10,
@@ -245,14 +247,14 @@ export async function scheduleBackgroundHourlyTest({
   bikeModel?: string;
 }): Promise<NotificationResult> {
   if (!isNotificationSupported()) {
-    return { success: false, permission: 'denied', message: 'Notifications not supported' };
+    return { success: false, permission: 'denied', message: 'Notifications are not supported by your browser.' };
   }
 
   let permission = Notification.permission;
   if (permission !== 'granted') {
     permission = await requestNotificationPermission();
     if (permission !== 'granted') {
-      return { success: false, permission, message: 'Permission was blocked or denied.' };
+      return { success: false, permission, message: 'Notification permission was denied.' };
     }
   }
 
@@ -260,12 +262,15 @@ export async function scheduleBackgroundHourlyTest({
   const needed = Math.round(neededToday);
   const actual = Math.round(todayActualSavings);
 
-  let title = `🏍️ ${bikeModel}: ₹${needed.toLocaleString('en-IN')} Save Karna Baki Hai!`;
-  let body = `Aaj ka target ₹${planned.toLocaleString('en-IN')} hai. 10 Jan 2027 tak Hunter 350 lene ke liye abhi deposit add karein!`;
+  let title: string;
+  let body: string;
 
   if (actual > 0) {
-    title = `🏍️ ${bikeModel}: ₹${needed.toLocaleString('en-IN')} Aur Save Karein!`;
-    body = `Aaj ₹${actual.toLocaleString('en-IN')} save ho chuka hai, baaki ₹${needed.toLocaleString('en-IN')} abhi deposit karein!`;
+    title = `₹${needed.toLocaleString('en-IN')} remaining — ${bikeModel}`;
+    body = `You've saved ₹${actual.toLocaleString('en-IN')} today. Record ₹${needed.toLocaleString('en-IN')} more to complete your daily target.`;
+  } else {
+    title = `₹${needed.toLocaleString('en-IN')} to save today — ${bikeModel}`;
+    body = `Today's target is ₹${planned.toLocaleString('en-IN')}. Tap to record your deposit.`;
   }
 
   if ('serviceWorker' in navigator) {
@@ -283,7 +288,7 @@ export async function scheduleBackgroundHourlyTest({
         return {
           success: true,
           permission: 'granted',
-          message: `Scheduled! Abhi app ko MINIMIZE karein — ${delaySeconds} seconds me background notification aayega!`,
+          message: `Scheduled! Minimize or lock your device — a notification will appear in ${delaySeconds} seconds.`,
         };
       }
     } catch (err: any) {
@@ -291,7 +296,7 @@ export async function scheduleBackgroundHourlyTest({
     }
   }
 
-  // Fallback timeout in window
+  // Fallback: in-window timer
   setTimeout(() => {
     sendNotification({ title, body, tag: 'hourly-deposit-reminder' });
   }, delaySeconds * 1000);
@@ -299,7 +304,7 @@ export async function scheduleBackgroundHourlyTest({
   return {
     success: true,
     permission: 'granted',
-    message: `Scheduled! Abhi tab ko minimize karein — ${delaySeconds} seconds me notification aayega!`,
+    message: `Scheduled! Minimize this tab — notification arrives in ${delaySeconds} seconds.`,
   };
 }
 
@@ -314,24 +319,24 @@ export async function scheduleBackgroundNotification(delaySeconds: number = 6): 
 
 export async function sendTestNotification(): Promise<NotificationResult> {
   return sendNotification({
-    title: '🏍️ Hunter Fund: Reminders Active!',
-    body: 'Daily reminders active hain. Jab tak aaj ka deposit add nahi karenge, push notifications aate rahenge.',
+    title: 'Hunter Fund — Reminders Active',
+    body: 'You will receive hourly reminders until today\'s savings target is recorded. Tap to add a deposit.',
     tag: 'test-notification',
   });
 }
 
 export async function sendMilestoneNotification(milestoneAmount: number): Promise<NotificationResult> {
   return sendNotification({
-    title: '🎉 Milestone Unlocked!',
-    body: `Badhai ho! Aapne ₹${milestoneAmount.toLocaleString('en-IN')} cross kar liye hain Royal Enfield Hunter 350 Graphite Grey ke liye!`,
+    title: `Milestone Reached — ₹${milestoneAmount.toLocaleString('en-IN')}`,
+    body: `Congratulations! You've crossed ₹${milestoneAmount.toLocaleString('en-IN')} towards your Royal Enfield Hunter 350. Keep going!`,
     tag: `milestone-${milestoneAmount}`,
   });
 }
 
 export async function sendDailyReminderNotification(dailyTarget: number): Promise<NotificationResult> {
   return sendNotification({
-    title: '🏍️ Hunter 350 Savings Target',
-    body: `Aaj ka target: ₹${dailyTarget.toLocaleString('en-IN')}. 10 January 2027 delivery ke liye abhi deposit log karein!`,
+    title: 'Daily Savings Reminder — Hunter 350',
+    body: `Today's target: ₹${dailyTarget.toLocaleString('en-IN')}. Record your deposit to stay on schedule for 10 January 2027.`,
     tag: 'daily-reminder',
   });
 }
