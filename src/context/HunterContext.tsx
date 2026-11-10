@@ -31,6 +31,7 @@ import {
   sendHourlyDepositReminder,
   scheduleBackgroundHourlyTest,
   syncHourlyReminderWithServiceWorker,
+  speakDynamicAlert,
 } from '../lib/notifications';
 import { getTodayString } from '../lib/formatters';
 import { Capacitor } from '@capacitor/core';
@@ -80,6 +81,8 @@ interface HunterContextType {
   scheduleBackgroundTest: (delaySeconds?: number) => Promise<any>;
   testHourlyReminder: () => Promise<any>;
   scheduleBackgroundHourlyTest: (delaySeconds?: number) => Promise<any>;
+  voiceLanguage: 'english' | 'hinglish' | 'hindi' | 'marathi';
+  setVoiceLanguage: (lang: 'english' | 'hinglish' | 'hindi' | 'marathi') => void;
 }
 
 const HunterContext = createContext<HunterContextType | undefined>(undefined);
@@ -249,6 +252,15 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return saved !== null ? saved === 'true' : true;
   });
 
+  const [voiceLanguage, setVoiceLanguageState] = useState<'english' | 'hinglish' | 'hindi' | 'marathi'>(() => {
+    return ((localStorage.getItem('hunter_fund_voice_lang') as any) || 'hinglish');
+  });
+
+  const setVoiceLanguage = useCallback((lang: 'english' | 'hinglish' | 'hindi' | 'marathi') => {
+    setVoiceLanguageState(lang);
+    localStorage.setItem('hunter_fund_voice_lang', lang);
+  }, []);
+
   const setHourlyRemindersEnabled = useCallback((enabled: boolean) => {
     setHourlyRemindersEnabledState(enabled);
     localStorage.setItem('hunter_fund_hourly_reminders', enabled ? 'true' : 'false');
@@ -356,13 +368,33 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const testHourlyReminder = useCallback(async () => {
     const needed = Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings);
-    return sendHourlyDepositReminder({
-      neededToday: needed > 0 ? needed : metrics.todayPlannedSavings,
+    const neededAmount = needed > 0 ? needed : metrics.todayPlannedSavings;
+    
+    // Speak dynamic alert addressed to Leena Mundhada
+    speakDynamicAlert({
+      neededToday: neededAmount,
       todayPlannedSavings: metrics.todayPlannedSavings,
       todayActualSavings: metrics.todayActualSavings,
+      remainingAmount: metrics.remainingAmount,
+      currentBalance: metrics.currentBalance,
+      targetAmount: metrics.targetAmount,
+      daysRemaining: metrics.daysRemaining,
       bikeModel: goal.bike_model,
+      language: voiceLanguage,
+    }).catch(() => {});
+
+    return sendHourlyDepositReminder({
+      neededToday: neededAmount,
+      todayPlannedSavings: metrics.todayPlannedSavings,
+      todayActualSavings: metrics.todayActualSavings,
+      remainingAmount: metrics.remainingAmount,
+      currentBalance: metrics.currentBalance,
+      targetAmount: metrics.targetAmount,
+      daysRemaining: metrics.daysRemaining,
+      bikeModel: goal.bike_model,
+      language: voiceLanguage,
     });
-  }, [metrics, goal.bike_model]);
+  }, [metrics, goal.bike_model, voiceLanguage]);
 
   const scheduleBackgroundHourlyTestCallback = useCallback(async (delaySeconds: number = 10) => {
     const needed = Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings);
@@ -371,9 +403,14 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       neededToday: needed > 0 ? needed : metrics.todayPlannedSavings,
       todayPlannedSavings: metrics.todayPlannedSavings,
       todayActualSavings: metrics.todayActualSavings,
+      remainingAmount: metrics.remainingAmount,
+      currentBalance: metrics.currentBalance,
+      targetAmount: metrics.targetAmount,
+      daysRemaining: metrics.daysRemaining,
       bikeModel: goal.bike_model,
+      language: voiceLanguage,
     });
-  }, [metrics, goal.bike_model]);
+  }, [metrics, goal.bike_model, voiceLanguage]);
 
   // Loan calculation
   const loanCalculation = useMemo(() => {
@@ -432,7 +469,12 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           neededToday,
           todayPlannedSavings: metrics.todayPlannedSavings,
           todayActualSavings: metrics.todayActualSavings,
+          remainingAmount: metrics.remainingAmount,
+          currentBalance: metrics.currentBalance,
+          targetAmount: metrics.targetAmount,
+          daysRemaining: metrics.daysRemaining,
           bikeModel: goal.bike_model,
+          language: voiceLanguage,
         });
       }
     };
@@ -443,8 +485,13 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     notificationsEnabled,
     hourlyRemindersEnabled,
     quietHoursEnabled,
+    voiceLanguage,
     metrics.todayPlannedSavings,
     metrics.todayActualSavings,
+    metrics.remainingAmount,
+    metrics.currentBalance,
+    metrics.targetAmount,
+    metrics.daysRemaining,
     goal.bike_model,
   ]);
 
@@ -851,6 +898,8 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         scheduleBackgroundTest,
         testHourlyReminder,
         scheduleBackgroundHourlyTest: scheduleBackgroundHourlyTestCallback,
+        voiceLanguage,
+        setVoiceLanguage,
       }}
     >
       {children}

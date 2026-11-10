@@ -12,6 +12,7 @@ import {
   Zap,
   Smartphone,
   Clock,
+  Volume2,
 } from 'lucide-react';
 import { useHunter } from '../../context/HunterContext';
 import { Button } from '../common/Button';
@@ -39,6 +40,8 @@ export const SettingsView: React.FC = () => {
     scheduleBackgroundTest,
     testHourlyReminder,
     scheduleBackgroundHourlyTest,
+    voiceLanguage,
+    setVoiceLanguage,
   } = useHunter();
 
   const [targetAmount, setTargetAmount] = useState(String(goal.target_amount));
@@ -458,15 +461,42 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
             </button>
           </div>
 
-          {/* Fixed Time Setting */}
-          <div className="flex items-center justify-between pt-2.5 border-t border-slate-200">
-            <span className="text-xs text-slate-600">Daily Digest Time</span>
-            <input
-              type="time"
-              value={reminderTime}
-              onChange={(e) => setReminderTime(e.target.value)}
-              className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-900 font-mono focus:outline-none focus:border-emerald-600"
-            />
+          {/* Voice Alert Language Selector (Addressed to Leena Mundhada) */}
+          <div className="pt-2.5 border-t border-slate-200 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                <Volume2 className="w-3.5 h-3.5 text-emerald-600" />
+                Voice & Alert Language (For Leena Mundhada)
+              </span>
+              <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                Loud Alarm + TTS
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Personalized speech and notification language:
+            </p>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              {[
+                { id: 'hinglish', label: 'Hinglish', desc: 'लीना जी, आज ₹1,071 जमा...' },
+                { id: 'hindi', label: 'Hindi (हिंदी)', desc: 'नमस्ते लीना जी! आज ₹1,071...' },
+                { id: 'marathi', label: 'Marathi (मराठी)', desc: 'नमस्कार लीना ताई! आज ₹1,071...' },
+                { id: 'english', label: 'English', desc: 'Hello Leena! Today ₹1,071...' },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setVoiceLanguage(opt.id as any)}
+                  className={`p-2.5 rounded-xl text-left border transition-all ${
+                    voiceLanguage === opt.id
+                      ? 'border-emerald-600 bg-emerald-50 text-emerald-950 font-bold shadow-sm ring-1 ring-emerald-500'
+                      : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                  }`}
+                >
+                  <p className="text-xs font-bold">{opt.label}</p>
+                  <p className="text-[10px] text-slate-500 truncate">{opt.desc}</p>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 

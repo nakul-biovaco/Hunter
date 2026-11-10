@@ -12,7 +12,14 @@ import {
   scheduleHourlyReminders,
   cancelHourlyReminders,
   scheduleNativeBackgroundTest,
+  generateSmartNotificationCopy,
+  speakDynamicAlert,
+  SmartNotificationData,
+  VoiceLanguage,
 } from './native-notifications';
+
+export { speakDynamicAlert };
+export type { VoiceLanguage };
 
 export interface HourlyReminderState {
   enabled: boolean;
@@ -241,33 +248,40 @@ export async function syncHourlyReminderWithServiceWorker(state: HourlyReminderS
 }
 
 /**
- * Sends an hourly deposit reminder with the exact calculated savings amounts.
+ * Sends an hourly deposit reminder with dynamic live calculated savings amounts.
  */
 export async function sendHourlyDepositReminder({
   neededToday,
   todayPlannedSavings,
   todayActualSavings,
+  remainingAmount,
+  currentBalance,
+  targetAmount,
+  daysRemaining,
   bikeModel = 'Royal Enfield Hunter 350',
+  language = 'hinglish',
 }: {
   neededToday: number;
   todayPlannedSavings: number;
   todayActualSavings: number;
+  remainingAmount?: number;
+  currentBalance?: number;
+  targetAmount?: number;
+  daysRemaining?: number;
   bikeModel?: string;
+  language?: VoiceLanguage;
 }): Promise<NotificationResult> {
-  const planned = Math.round(todayPlannedSavings);
-  const needed = Math.round(neededToday);
-  const actual = Math.round(todayActualSavings);
-
-  let title: string;
-  let body: string;
-
-  if (actual > 0) {
-    title = `₹${needed.toLocaleString('en-IN')} remaining — ${bikeModel}`;
-    body = `You've saved ₹${actual.toLocaleString('en-IN')} today. Record ₹${needed.toLocaleString('en-IN')} more to hit your daily target of ₹${planned.toLocaleString('en-IN')}.`;
-  } else {
-    title = `₹${needed.toLocaleString('en-IN')} to save today — ${bikeModel}`;
-    body = `Today's target is ₹${planned.toLocaleString('en-IN')}. Record your deposit to stay on track for 10 Jan 2027.`;
-  }
+  const { title, body, needed } = generateSmartNotificationCopy({
+    neededToday,
+    todayPlannedSavings,
+    todayActualSavings,
+    remainingAmount,
+    currentBalance,
+    targetAmount,
+    daysRemaining,
+    bikeModel,
+    language,
+  });
 
   return sendNotification({
     title,
@@ -279,20 +293,30 @@ export async function sendHourlyDepositReminder({
 }
 
 /**
- * Schedules a background test notification after a delay.
+ * Schedules a background test notification after a delay with full dynamic numbers.
  */
 export async function scheduleBackgroundHourlyTest({
   delaySeconds = 10,
   neededToday,
   todayPlannedSavings,
   todayActualSavings,
+  remainingAmount,
+  currentBalance,
+  targetAmount,
+  daysRemaining,
   bikeModel = 'Royal Enfield Hunter 350',
+  language = 'hinglish',
 }: {
   delaySeconds?: number;
   neededToday: number;
   todayPlannedSavings: number;
   todayActualSavings: number;
+  remainingAmount?: number;
+  currentBalance?: number;
+  targetAmount?: number;
+  daysRemaining?: number;
   bikeModel?: string;
+  language?: VoiceLanguage;
 }): Promise<NotificationResult> {
   // Native platform handling
   if (isNativePlatform()) {
@@ -301,13 +325,18 @@ export async function scheduleBackgroundHourlyTest({
       neededToday,
       todayPlannedSavings,
       todayActualSavings,
+      remainingAmount,
+      currentBalance,
+      targetAmount,
+      daysRemaining,
       bikeModel,
+      language,
     });
     return {
       success,
       permission: 'granted',
       message: success
-        ? `Scheduled! Lock your phone — notification arrives in ${delaySeconds} seconds.`
+        ? `Scheduled! Lock your phone — loud alarm & ${language.toUpperCase()} voice alert arrives in ${delaySeconds}s.`
         : 'Failed to schedule notification.',
     };
   }
@@ -324,20 +353,17 @@ export async function scheduleBackgroundHourlyTest({
     }
   }
 
-  const planned = Math.round(todayPlannedSavings);
-  const needed = Math.round(neededToday);
-  const actual = Math.round(todayActualSavings);
-
-  let title: string;
-  let body: string;
-
-  if (actual > 0) {
-    title = `₹${needed.toLocaleString('en-IN')} remaining — ${bikeModel}`;
-    body = `You've saved ₹${actual.toLocaleString('en-IN')} today. Record ₹${needed.toLocaleString('en-IN')} more to complete your daily target.`;
-  } else {
-    title = `₹${needed.toLocaleString('en-IN')} to save today — ${bikeModel}`;
-    body = `Today's target is ₹${planned.toLocaleString('en-IN')}. Tap to record your deposit.`;
-  }
+  const { title, body, needed } = generateSmartNotificationCopy({
+    neededToday,
+    todayPlannedSavings,
+    todayActualSavings,
+    remainingAmount,
+    currentBalance,
+    targetAmount,
+    daysRemaining,
+    bikeModel,
+    language,
+  });
 
   if ('serviceWorker' in navigator) {
     try {
