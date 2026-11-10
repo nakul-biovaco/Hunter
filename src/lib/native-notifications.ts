@@ -8,7 +8,7 @@ const HOURLY_REMINDER_BASE_ID = 1000;
 const MILESTONE_ID = 2000;
 const TEST_ID = 3000;
 const DAILY_REMINDER_ID = 4000;
-export const NOTIFICATION_CHANNEL_ID = 'hunter_custom_alert_v1';
+export const NOTIFICATION_CHANNEL_ID = 'hunter_alarm_voice_v3';
 export const NOTIFICATION_SOUND = 'hunter_alert.wav';
 
 /**
@@ -53,15 +53,16 @@ export async function checkNativePermission(): Promise<boolean> {
 export async function setupNativeNotificationChannel(): Promise<void> {
   if (!isNativePlatform()) return;
   try {
-    // Clear old channel cache so Android applies the custom sound
+    // Clear old channel caches so Android applies the new loud alarm sound
     try {
       await LocalNotifications.deleteChannel({ id: 'hunter_reminders' });
+      await LocalNotifications.deleteChannel({ id: 'hunter_custom_alert_v1' });
     } catch {}
 
     await LocalNotifications.createChannel({
       id: NOTIFICATION_CHANNEL_ID,
-      name: 'Hunter Fund Voice Alerts',
-      description: 'Hourly savings goal reminders with voice alert',
+      name: 'Hunter Fund Loud Alarm & Voice Alerts',
+      description: 'Loud alarm chime and voice reminder for daily savings deposits',
       importance: 5, // High: Heads-up pop-up banner + audio
       visibility: 1, // Public on lockscreen
       vibration: true,
@@ -356,5 +357,23 @@ export async function registerNativeNotificationActions(
     });
   } catch (err) {
     console.error('Failed to register native notification actions:', err);
+  }
+}
+
+/**
+ * In-app Text-To-Speech voice readout
+ */
+export function speakAlert(text: string): void {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voices = window.speechSynthesis.getVoices();
+    const indianVoice = voices.find((v) => v.lang.includes('IN') || v.lang.includes('hi'));
+    if (indianVoice) utterance.voice = indianVoice;
+    utterance.rate = 0.95;
+    window.speechSynthesis.speak(utterance);
+  } catch (err) {
+    console.warn('Speech error:', err);
   }
 }
