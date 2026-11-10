@@ -46,3 +46,13 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Capacitor Android build artifacts
+android/app/build/
+android/.gradle/
+android/build/
+android/local.properties
+android/app/release/
+*.apk
+*.aab
+*.keystore

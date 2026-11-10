@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Hunter Fund</string>
+    <string name="title_activity_main">Hunter Fund</string>
+    <string name="package_name">com.hunterfund.app</string>
+    <string name="custom_url_scheme">com.hunterfund.app</string>
+</resources>

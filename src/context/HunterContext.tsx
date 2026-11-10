@@ -33,6 +33,8 @@ import {
   syncHourlyReminderWithServiceWorker,
 } from '../lib/notifications';
 import { getTodayString } from '../lib/formatters';
+import { Capacitor } from '@capacitor/core';
+import { isNativePlatform, registerNativeNotificationActions } from '../lib/native-notifications';
 
 interface HunterContextType {
   activePage: ActivePage;
@@ -63,8 +65,8 @@ interface HunterContextType {
   supabaseStatusMessage: string;
   isQuickAddOpen: boolean;
   setIsQuickAddOpen: (open: boolean) => void;
-  exportTransactionsCSV: () => void;
-  exportReportCSV: () => void;
+  exportTransactionsCSV: () => Promise<void>;
+  exportReportCSV: () => Promise<void>;
   triggerCelebration: () => void;
   notificationsEnabled: boolean;
   setNotificationsEnabled: (enabled: boolean) => Promise<boolean>;
@@ -467,6 +469,13 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     window.addEventListener('hunter-open-quick-add', handleCustomOpen);
 
+    // Register native notification tap listener on Android
+    if (isNativePlatform()) {
+      registerNativeNotificationActions(() => {
+        setIsQuickAddOpen(true);
+      });
+    }
+
     return () => {
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.removeEventListener('message', handleSwMessage);
@@ -688,7 +697,7 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, []);
 
   // Export CSV functions
-  const exportTransactionsCSV = useCallback(() => {
+  const exportTransactionsCSV = useCallback(async () => {
     const headers = ['ID', 'Date', 'Type', 'Category', 'Amount (INR)', 'Note', 'Timestamp'];
     const rows = transactions.map((t) => [
       t.id,
@@ -701,6 +710,27 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     ]);
 
     const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const { Filesystem, Directory } = await import('@capacitor/filesystem');
+        const { Share } = await import('@capacitor/share');
+        const fileName = `Hunter_Fund_Ledger_${new Date().toISOString().split('T')[0]}.csv`;
+        const result = await Filesystem.writeFile({
+          path: fileName,
+          data: btoa(unescape(encodeURIComponent(csvContent))),
+          directory: Directory.Cache,
+        });
+        await Share.share({
+          title: 'Hunter Fund — Transaction Ledger',
+          url: result.uri,
+        });
+      } catch (err) {
+        console.error('Native export failed:', err);
+      }
+      return;
+    }
+
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -711,7 +741,7 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     document.body.removeChild(link);
   }, [transactions]);
 
-  const exportReportCSV = useCallback(() => {
+  const exportReportCSV = useCallback(async () => {
     const reportData = [
       ['HUNTER FUND – Royal Enfield Hunter 350 Purchase Report'],
       ['Generated On', new Date().toLocaleString('en-IN')],
@@ -734,6 +764,27 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     ];
 
     const csvContent = reportData.map((row) => row.join(',')).join('\n');
+
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const { Filesystem, Directory } = await import('@capacitor/filesystem');
+        const { Share } = await import('@capacitor/share');
+        const fileName = `Hunter_Fund_Financial_Report_${new Date().toISOString().split('T')[0]}.csv`;
+        const result = await Filesystem.writeFile({
+          path: fileName,
+          data: btoa(unescape(encodeURIComponent(csvContent))),
+          directory: Directory.Cache,
+        });
+        await Share.share({
+          title: 'Hunter Fund — Financial Report',
+          url: result.uri,
+        });
+      } catch (err) {
+        console.error('Native report export failed:', err);
+      }
+      return;
+    }
+
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');

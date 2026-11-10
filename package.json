@@ -9,15 +9,24 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/local-notifications": "^8.3.1",
+    "@capacitor/share": "^8.0.3",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4",
     "@supabase/supabase-js": "^2.49.1",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "lucide-react": "^0.475.0",
-    "recharts": "^2.15.1",
-    "tailwind-merge": "^2.6.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "recharts": "^2.15.1",
+    "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
     "@types/canvas-confetti": "^1.9.0",
@@ -32,4 +41,3 @@
     "vite": "^6.1.0"
   }
 }
-

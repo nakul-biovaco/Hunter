@@ -1,6 +1,18 @@
 // Web Push & Local Notification Manager for Hunter Fund
 // Background Hourly Reminder Engine — sends reminders until today's deposit target is met
 
+import { Capacitor } from '@capacitor/core';
+import {
+  isNativePlatform,
+  requestNativePermission,
+  sendNativeNotification,
+  sendNativeTestNotification,
+  sendNativeMilestoneNotification,
+  sendNativeDailyReminder,
+  scheduleHourlyReminders,
+  cancelHourlyReminders,
+} from './native-notifications';
+
 export interface HourlyReminderState {
   enabled: boolean;
   todayPlannedSavings: number;
@@ -15,15 +27,22 @@ export interface HourlyReminderState {
 }
 
 export function isNotificationSupported(): boolean {
+  if (isNativePlatform()) return true;
   return typeof window !== 'undefined' && 'Notification' in window;
 }
 
 export function getNotificationPermission(): NotificationPermission {
+  if (isNativePlatform()) return 'granted';
   if (!isNotificationSupported()) return 'denied';
   return Notification.permission;
 }
 
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
+  if (isNativePlatform()) {
+    const granted = await requestNativePermission();
+    return granted ? 'granted' : 'denied';
+  }
+
   if (!isNotificationSupported()) {
     throw new Error('Notifications are not supported in this browser.');
   }
@@ -70,6 +89,16 @@ export async function sendNotification({
         detail: { title, body },
       })
     );
+  }
+
+  // Native platform: use Capacitor Local Notifications
+  if (isNativePlatform()) {
+    const success = await sendNativeNotification({ title, body, extra: data });
+    return {
+      success,
+      permission: 'granted',
+      message: success ? 'Notification delivered successfully.' : 'Failed to send native notification.',
+    };
   }
 
   if (!isNotificationSupported()) {
@@ -163,6 +192,24 @@ export async function sendNotification({
  * Syncs hourly reminder state with the Service Worker background daemon.
  */
 export async function syncHourlyReminderWithServiceWorker(state: HourlyReminderState): Promise<void> {
+  // Native platform: schedule native hourly reminders
+  if (isNativePlatform()) {
+    if (state.enabled && state.neededToday > 0) {
+      await scheduleHourlyReminders({
+        neededToday: state.neededToday,
+        todayPlannedSavings: state.todayPlannedSavings,
+        todayActualSavings: state.todayActualSavings,
+        bikeModel: state.bikeModel,
+        quietHoursEnabled: state.quietHoursEnabled,
+        quietHoursStart: state.quietHoursStart ?? 23,
+        quietHoursEnd: state.quietHoursEnd ?? 8,
+      });
+    } else {
+      await cancelHourlyReminders();
+    }
+    return;
+  }
+
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
 
   try {
@@ -318,6 +365,10 @@ export async function scheduleBackgroundNotification(delaySeconds: number = 6): 
 }
 
 export async function sendTestNotification(): Promise<NotificationResult> {
+  if (isNativePlatform()) {
+    const success = await sendNativeTestNotification();
+    return { success, permission: 'granted', message: success ? 'Test notification sent.' : 'Failed to send test notification.' };
+  }
   return sendNotification({
     title: 'Hunter Fund — Reminders Active',
     body: 'You will receive hourly reminders until today\'s savings target is recorded. Tap to add a deposit.',
@@ -326,6 +377,10 @@ export async function sendTestNotification(): Promise<NotificationResult> {
 }
 
 export async function sendMilestoneNotification(milestoneAmount: number): Promise<NotificationResult> {
+  if (isNativePlatform()) {
+    const success = await sendNativeMilestoneNotification(milestoneAmount);
+    return { success, permission: 'granted', message: success ? 'Milestone notification sent.' : 'Failed.' };
+  }
   return sendNotification({
     title: `Milestone Reached — ₹${milestoneAmount.toLocaleString('en-IN')}`,
     body: `Congratulations! You've crossed ₹${milestoneAmount.toLocaleString('en-IN')} towards your Royal Enfield Hunter 350. Keep going!`,
@@ -334,6 +389,10 @@ export async function sendMilestoneNotification(milestoneAmount: number): Promis
 }
 
 export async function sendDailyReminderNotification(dailyTarget: number): Promise<NotificationResult> {
+  if (isNativePlatform()) {
+    const success = await sendNativeDailyReminder(dailyTarget);
+    return { success, permission: 'granted', message: success ? 'Daily reminder sent.' : 'Failed.' };
+  }
   return sendNotification({
     title: 'Daily Savings Reminder — Hunter 350',
     body: `Today's target: ₹${dailyTarget.toLocaleString('en-IN')}. Record your deposit to stay on schedule for 10 January 2027.`,
