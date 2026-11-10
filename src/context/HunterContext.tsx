@@ -370,20 +370,8 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const needed = Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings);
     const neededAmount = needed > 0 ? needed : metrics.todayPlannedSavings;
     
-    // Speak dynamic alert addressed to Leena Mundhada
-    speakDynamicAlert({
-      neededToday: neededAmount,
-      todayPlannedSavings: metrics.todayPlannedSavings,
-      todayActualSavings: metrics.todayActualSavings,
-      remainingAmount: metrics.remainingAmount,
-      currentBalance: metrics.currentBalance,
-      targetAmount: metrics.targetAmount,
-      daysRemaining: metrics.daysRemaining,
-      bikeModel: goal.bike_model,
-      language: voiceLanguage,
-    }).catch(() => {});
-
-    return sendHourlyDepositReminder({
+    // 1. First trigger notification with loud 1.8s alarm chime
+    const result = await sendHourlyDepositReminder({
       neededToday: neededAmount,
       todayPlannedSavings: metrics.todayPlannedSavings,
       todayActualSavings: metrics.todayActualSavings,
@@ -394,6 +382,23 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       bikeModel: goal.bike_model,
       language: voiceLanguage,
     });
+
+    // 2. Speak dynamic alert in natural Indian voice right after the chime
+    setTimeout(() => {
+      speakDynamicAlert({
+        neededToday: neededAmount,
+        todayPlannedSavings: metrics.todayPlannedSavings,
+        todayActualSavings: metrics.todayActualSavings,
+        remainingAmount: metrics.remainingAmount,
+        currentBalance: metrics.currentBalance,
+        targetAmount: metrics.targetAmount,
+        daysRemaining: metrics.daysRemaining,
+        bikeModel: goal.bike_model,
+        language: voiceLanguage,
+      }).catch(() => {});
+    }, 1200);
+
+    return result;
   }, [metrics, goal.bike_model, voiceLanguage]);
 
   const scheduleBackgroundHourlyTestCallback = useCallback(async (delaySeconds: number = 10) => {

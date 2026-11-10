@@ -271,7 +271,7 @@ export async function sendHourlyDepositReminder({
   bikeModel?: string;
   language?: VoiceLanguage;
 }): Promise<NotificationResult> {
-  const { title, body, needed } = generateSmartNotificationCopy({
+  const { title, body, needed, speechText, ttsLang } = generateSmartNotificationCopy({
     neededToday,
     todayPlannedSavings,
     todayActualSavings,
@@ -288,7 +288,7 @@ export async function sendHourlyDepositReminder({
     body,
     tag: 'hourly-deposit-reminder',
     renotify: true,
-    data: { url: '/?action=quick-deposit', neededToday: needed },
+    data: { url: '/?action=quick-deposit', neededToday: needed, speechText, ttsLang },
   });
 }
 

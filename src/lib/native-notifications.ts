@@ -9,7 +9,7 @@ const HOURLY_REMINDER_BASE_ID = 1000;
 const MILESTONE_ID = 2000;
 const TEST_ID = 3000;
 const DAILY_REMINDER_ID = 4000;
-export const NOTIFICATION_CHANNEL_ID = 'hunter_alarm_voice_v3';
+export const NOTIFICATION_CHANNEL_ID = 'hunter_alarm_v4';
 export const NOTIFICATION_SOUND = 'hunter_alert.wav';
 
 export type VoiceLanguage = 'english' | 'hinglish' | 'hindi' | 'marathi';
@@ -72,6 +72,7 @@ export async function setupNativeNotificationChannel(): Promise<void> {
     try {
       await LocalNotifications.deleteChannel({ id: 'hunter_reminders' });
       await LocalNotifications.deleteChannel({ id: 'hunter_custom_alert_v1' });
+      await LocalNotifications.deleteChannel({ id: 'hunter_alarm_voice_v3' });
     } catch {}
 
     await LocalNotifications.createChannel({
@@ -152,16 +153,47 @@ export function generateSmartNotificationCopy(data: SmartNotificationData) {
       if (actual > 0) {
         title = `लीना जी, ₹${needed.toLocaleString('en-IN')} आज जमा करना बाकी है — Hunter 350`;
         body = `Hello Leena Mundhada ji! Aaj ₹${actual.toLocaleString('en-IN')} save hua hai (Target: ₹${planned.toLocaleString('en-IN')}). Total ₹${remaining.toLocaleString('en-IN')} bache hain (${days} din bache). Tap karke deposit karein!`;
-        speechText = `Hello Leena Mundhada ji! Hunter Fund alert. Aaj aapne ${actual} rupaye save kiye hain. Target poora karne ke liye ${needed} rupaye aur jama karein. Hunter 350 ke liye kul ${remaining} rupaye bache hain.`;
+        speechText = `हेलो लीना मूंधड़ा जी! हंटर फंड अलर्ट। आज आपने ${actual} रुपये जमा किए हैं। आज का लक्ष्य पूरा करने के लिए ${needed} रुपये और जमा करें। हंटर 350 के लिए कुल ${remaining} रुपये बाकी हैं।`;
       } else {
         title = `लीना जी, ₹${needed.toLocaleString('en-IN')} आज जमा करना है — Hunter 350`;
         body = `Hello Leena Mundhada ji! Aaj ka savings target ₹${planned.toLocaleString('en-IN')} hai. Hunter 350 ke liye kul ₹${remaining.toLocaleString('en-IN')} bache hain. Jaldi se apna deposit record karein!`;
-        speechText = `Hello Leena Mundhada ji! Hunter Fund alert. Aaj ka savings target ${planned} rupaye hai. Hunter 350 ke liye kul ${remaining} rupaye bache hain. Jaldi se apna deposit record karein.`;
+        speechText = `हेलो लीना मूंधड़ा जी! हंटर फंड अलर्ट। आज का बचत लक्ष्य ${planned} रुपये है। हंटर 350 के लिए कुल ${remaining} रुपये बाकी हैं। जल्दी से अपनी आज की बचत दर्ज करें।`;
       }
       break;
   }
 
   return { title, body, speechText, ttsLang, needed, planned, actual, remaining, days };
+}
+
+/**
+ * Finds the highest quality neural or natural voice index for Android TextToSpeech
+ */
+async function findBestVoiceIndex(langCode: string): Promise<number | undefined> {
+  try {
+    const res = await TextToSpeech.getSupportedVoices();
+    if (!res || !res.voices || res.voices.length === 0) return undefined;
+
+    const langTarget = langCode.toLowerCase().replace('_', '-');
+    const langPrefix = langTarget.split('-')[0];
+
+    // Priority 1: High quality natural/neural/network voice matching language
+    const p1 = res.voices.findIndex((v) => {
+      const vLang = (v.lang || '').toLowerCase().replace('_', '-');
+      const vName = (v.name || '').toLowerCase();
+      const matchesLang = vLang === langTarget || vLang.startsWith(langPrefix);
+      const isHighQuality = vName.includes('network') || vName.includes('neural') || vName.includes('local') || vName.includes('female');
+      return matchesLang && isHighQuality;
+    });
+    if (p1 >= 0) return p1;
+
+    // Priority 2: Any voice matching language
+    const p2 = res.voices.findIndex((v) => {
+      const vLang = (v.lang || '').toLowerCase().replace('_', '-');
+      return vLang === langTarget || vLang.startsWith(langPrefix);
+    });
+    if (p2 >= 0) return p2;
+  } catch {}
+  return undefined;
 }
 
 /**
@@ -174,13 +206,15 @@ export async function speakDynamicAlert(data: SmartNotificationData): Promise<vo
   if (isNativePlatform()) {
     try {
       await TextToSpeech.stop();
+      const voiceIdx = await findBestVoiceIndex(ttsLang);
       await TextToSpeech.speak({
         text: speechText,
         lang: ttsLang,
-        rate: 0.95,
+        rate: 0.90, // Natural human conversational rate
         pitch: 1.0,
         volume: 1.0,
         category: 'ambient',
+        voice: voiceIdx,
       });
       return;
     } catch (err) {
@@ -195,10 +229,13 @@ export async function speakDynamicAlert(data: SmartNotificationData): Promise<vo
       const utterance = new SpeechSynthesisUtterance(speechText);
       const voices = window.speechSynthesis.getVoices();
       const langPrefix = ttsLang.split('-')[0];
-      const matchedVoice = voices.find((v) => v.lang.includes(langPrefix) || v.lang.includes('IN'));
+      const matchedVoice = voices.find((v) => {
+        const vLang = (v.lang || '').toLowerCase();
+        return vLang.includes(langPrefix) || vLang.includes('in');
+      });
       if (matchedVoice) utterance.voice = matchedVoice;
       utterance.lang = ttsLang;
-      utterance.rate = 0.95;
+      utterance.rate = 0.90;
       window.speechSynthesis.speak(utterance);
     } catch (err) {
       console.warn('Browser SpeechSynthesis fallback error:', err);
@@ -262,7 +299,7 @@ export async function scheduleNativeBackgroundTest(options: SmartNotificationDat
       if (!granted) return false;
     }
 
-    const { title, body, needed } = generateSmartNotificationCopy(options);
+    const { title, body, needed, speechText, ttsLang } = generateSmartNotificationCopy(options);
     const triggerTime = new Date(Date.now() + options.delaySeconds * 1000);
 
     await LocalNotifications.schedule({
@@ -275,7 +312,7 @@ export async function scheduleNativeBackgroundTest(options: SmartNotificationDat
           actionTypeId: 'DEPOSIT_REMINDER',
           schedule: { at: triggerTime, allowWhileIdle: true },
           sound: NOTIFICATION_SOUND,
-          extra: { action: 'quick-deposit', neededToday: needed.toString() },
+          extra: { action: 'quick-deposit', neededToday: needed.toString(), speechText, ttsLang },
         },
       ],
     });
@@ -309,7 +346,7 @@ export async function scheduleHourlyReminders(options: SmartNotificationData & {
       if (!granted) return false;
     }
 
-    const { title, body, needed } = generateSmartNotificationCopy(options);
+    const { title, body, needed, speechText, ttsLang } = generateSmartNotificationCopy(options);
 
     const now = new Date();
     const notifications = [];
@@ -336,7 +373,7 @@ export async function scheduleHourlyReminders(options: SmartNotificationData & {
         actionTypeId: 'DEPOSIT_REMINDER',
         schedule: { at: scheduleTime, allowWhileIdle: true },
         sound: NOTIFICATION_SOUND,
-        extra: { action: 'quick-deposit', neededToday: needed.toString() },
+        extra: { action: 'quick-deposit', neededToday: needed.toString(), speechText, ttsLang },
       });
     }
 
@@ -437,6 +474,27 @@ export async function registerNativeNotificationActions(
       ],
     });
     
+    // Listen for notification delivery to trigger voice smoothly after chime
+    await LocalNotifications.addListener('localNotificationReceived', (notification) => {
+      const extra = notification.extra;
+      if (extra?.speechText) {
+        setTimeout(async () => {
+          try {
+            const voiceIdx = await findBestVoiceIndex(extra.ttsLang || 'hi-IN');
+            await TextToSpeech.speak({
+              text: extra.speechText,
+              lang: extra.ttsLang || 'hi-IN',
+              rate: 0.90,
+              pitch: 1.0,
+              volume: 1.0,
+              category: 'ambient',
+              voice: voiceIdx,
+            });
+          } catch {}
+        }, 1200);
+      }
+    });
+
     // Listen for notification taps
     await LocalNotifications.addListener('localNotificationActionPerformed', (notification) => {
       const action = notification.actionId;
