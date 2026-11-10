@@ -11,7 +11,7 @@ const config: CapacitorConfig = {
     LocalNotifications: {
       smallIcon: 'ic_stat_notification',
       iconColor: '#10b981',
-      sound: 'default',
+      sound: 'hunter_alert.wav',
     },
     SplashScreen: {
       launchShowDuration: 2000,

@@ -1,5 +1,5 @@
 // Native Notification Manager for Hunter Fund (Capacitor Android)
-// Uses @capacitor/local-notifications for reliable background delivery
+// Uses @capacitor/local-notifications with custom voice alert sound in res/raw/hunter_alert.wav
 
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
@@ -8,7 +8,8 @@ const HOURLY_REMINDER_BASE_ID = 1000;
 const MILESTONE_ID = 2000;
 const TEST_ID = 3000;
 const DAILY_REMINDER_ID = 4000;
-export const NOTIFICATION_CHANNEL_ID = 'hunter_reminders';
+export const NOTIFICATION_CHANNEL_ID = 'hunter_custom_alert_v1';
+export const NOTIFICATION_SOUND = 'hunter_alert.wav';
 
 /**
  * Check if running on a native platform (Android/iOS)
@@ -47,19 +48,24 @@ export async function checkNativePermission(): Promise<boolean> {
 }
 
 /**
- * Create high-priority Android notification channel for heads-up reminders
+ * Create high-priority Android notification channel with custom text-to-speech voice tone
  */
 export async function setupNativeNotificationChannel(): Promise<void> {
   if (!isNativePlatform()) return;
   try {
+    // Clear old channel cache so Android applies the custom sound
+    try {
+      await LocalNotifications.deleteChannel({ id: 'hunter_reminders' });
+    } catch {}
+
     await LocalNotifications.createChannel({
       id: NOTIFICATION_CHANNEL_ID,
-      name: 'Hunter Fund Savings Reminders',
-      description: 'Hourly savings goal reminders and milestone celebrations',
-      importance: 5, // High (shows banner, plays sound, pops up)
-      visibility: 1, // Public (shows on lock screen)
+      name: 'Hunter Fund Voice Alerts',
+      description: 'Hourly savings goal reminders with voice alert',
+      importance: 5, // High: Heads-up pop-up banner + audio
+      visibility: 1, // Public on lockscreen
       vibration: true,
-      sound: 'default',
+      sound: NOTIFICATION_SOUND,
       lights: true,
       lightColor: '#10b981',
     });
@@ -97,7 +103,7 @@ export async function sendNativeNotification(options: {
           channelId: NOTIFICATION_CHANNEL_ID,
           actionTypeId: options.actionTypeId || 'DEPOSIT_REMINDER',
           schedule: { at: new Date(Date.now() + 500), allowWhileIdle: true },
-          sound: 'default',
+          sound: NOTIFICATION_SOUND,
           extra: options.extra || { action: 'quick-deposit' },
         },
       ],
@@ -156,7 +162,7 @@ export async function scheduleNativeBackgroundTest(options: {
           channelId: NOTIFICATION_CHANNEL_ID,
           actionTypeId: 'DEPOSIT_REMINDER',
           schedule: { at: triggerTime, allowWhileIdle: true },
-          sound: 'default',
+          sound: NOTIFICATION_SOUND,
           extra: { action: 'quick-deposit', neededToday: needed.toString() },
         },
       ],
@@ -170,8 +176,7 @@ export async function scheduleNativeBackgroundTest(options: {
 }
 
 /**
- * Schedule hourly native notifications for deposit reminders.
- * Schedules individual notifications for each hour remaining today (up to 16 hours).
+ * Schedule hourly native notifications for deposit reminders with custom voice alert
  */
 export async function scheduleHourlyReminders(options: {
   neededToday: number;
@@ -237,7 +242,7 @@ export async function scheduleHourlyReminders(options: {
         channelId: NOTIFICATION_CHANNEL_ID,
         actionTypeId: 'DEPOSIT_REMINDER',
         schedule: { at: scheduleTime, allowWhileIdle: true },
-        sound: 'default' as const,
+        sound: NOTIFICATION_SOUND,
         extra: { action: 'quick-deposit', neededToday: needed.toString() },
       });
     }
