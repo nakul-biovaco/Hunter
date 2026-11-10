@@ -228,7 +228,11 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Notifications State
   const [notificationsEnabled, setNotificationsEnabledState] = useState<boolean>(() => {
-    return localStorage.getItem('hunter_fund_notifications') === 'true';
+    const saved = localStorage.getItem('hunter_fund_notifications');
+    if (Capacitor.isNativePlatform()) {
+      return saved !== 'false';
+    }
+    return saved === 'true';
   });
 
   const [reminderTime, setReminderTimeState] = useState<string>(() => {
@@ -469,10 +473,16 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     window.addEventListener('hunter-open-quick-add', handleCustomOpen);
 
-    // Register native notification tap listener on Android
+    // Register native notification tap listener on Android & request permission
     if (isNativePlatform()) {
       registerNativeNotificationActions(() => {
         setIsQuickAddOpen(true);
+      });
+      requestNotificationPermission().then((status) => {
+        if (status === 'granted') {
+          setNotificationsEnabledState(true);
+          localStorage.setItem('hunter_fund_notifications', 'true');
+        }
       });
     }
 

@@ -11,6 +11,7 @@ import {
   sendNativeDailyReminder,
   scheduleHourlyReminders,
   cancelHourlyReminders,
+  scheduleNativeBackgroundTest,
 } from './native-notifications';
 
 export interface HourlyReminderState {
@@ -293,6 +294,24 @@ export async function scheduleBackgroundHourlyTest({
   todayActualSavings: number;
   bikeModel?: string;
 }): Promise<NotificationResult> {
+  // Native platform handling
+  if (isNativePlatform()) {
+    const success = await scheduleNativeBackgroundTest({
+      delaySeconds,
+      neededToday,
+      todayPlannedSavings,
+      todayActualSavings,
+      bikeModel,
+    });
+    return {
+      success,
+      permission: 'granted',
+      message: success
+        ? `Scheduled! Lock your phone — notification arrives in ${delaySeconds} seconds.`
+        : 'Failed to schedule notification.',
+    };
+  }
+
   if (!isNotificationSupported()) {
     return { success: false, permission: 'denied', message: 'Notifications are not supported by your browser.' };
   }
