@@ -35,7 +35,16 @@ import {
 } from '../lib/notifications';
 import { getTodayString } from '../lib/formatters';
 import { Capacitor } from '@capacitor/core';
-import { isNativePlatform, registerNativeNotificationActions } from '../lib/native-notifications';
+import { App as CapacitorApp } from '@capacitor/app';
+import {
+  isNativePlatform,
+  registerNativeNotificationActions,
+  getNativeBackgroundStatus,
+  requestNativeBatteryUnrestricted,
+  openNativeExactAlarmSettings,
+  openNativeNotificationSettings,
+} from '../lib/native-notifications';
+import type { BackgroundStatus } from '../lib/hunter-alarm-plugin';
 
 interface HunterContextType {
   activePage: ActivePage;
@@ -83,6 +92,11 @@ interface HunterContextType {
   scheduleBackgroundHourlyTest: (delaySeconds?: number) => Promise<any>;
   voiceLanguage: 'english' | 'hinglish' | 'hindi' | 'marathi';
   setVoiceLanguage: (lang: 'english' | 'hinglish' | 'hindi' | 'marathi') => void;
+  backgroundStatus: BackgroundStatus | null;
+  refreshBackgroundStatus: () => Promise<void>;
+  requestBatteryUnrestricted: () => Promise<void>;
+  openAlarmPermissionSettings: () => Promise<void>;
+  openNotificationPermissionSettings: () => Promise<void>;
 }
 
 const HunterContext = createContext<HunterContextType | undefined>(undefined);
@@ -256,6 +270,29 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return ((localStorage.getItem('hunter_fund_voice_lang') as any) || 'hinglish');
   });
 
+  const [backgroundStatus, setBackgroundStatus] = useState<BackgroundStatus | null>(null);
+
+  const refreshBackgroundStatus = useCallback(async () => {
+    if (!isNativePlatform()) return;
+    const st = await getNativeBackgroundStatus();
+    if (st) setBackgroundStatus(st);
+  }, []);
+
+  const requestBatteryUnrestricted = useCallback(async () => {
+    const st = await requestNativeBatteryUnrestricted();
+    if (st) setBackgroundStatus(st);
+  }, []);
+
+  const openAlarmPermissionSettings = useCallback(async () => {
+    const st = await openNativeExactAlarmSettings();
+    if (st) setBackgroundStatus(st);
+  }, []);
+
+  const openNotificationPermissionSettings = useCallback(async () => {
+    const st = await openNativeNotificationSettings();
+    if (st) setBackgroundStatus(st);
+  }, []);
+
   const setVoiceLanguage = useCallback((lang: 'english' | 'hinglish' | 'hindi' | 'marathi') => {
     setVoiceLanguageState(lang);
     localStorage.setItem('hunter_fund_voice_lang', lang);
@@ -277,7 +314,8 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (perm === 'granted') {
         setNotificationsEnabledState(true);
         localStorage.setItem('hunter_fund_notifications', 'true');
-        await sendTestNotification();
+        await sendTestNotification(voiceLanguage);
+        await refreshBackgroundStatus();
         return true;
       } else {
         setNotificationsEnabledState(false);
@@ -289,7 +327,7 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       localStorage.setItem('hunter_fund_notifications', 'false');
       return false;
     }
-  }, []);
+  }, [voiceLanguage, refreshBackgroundStatus]);
 
   const setReminderTime = useCallback((time: string) => {
     setReminderTimeState(time);
@@ -370,7 +408,7 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const needed = Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings);
     const neededAmount = needed > 0 ? needed : metrics.todayPlannedSavings;
     
-    // 1. First trigger notification with loud 1.8s alarm chime
+    // 1. Trigger loud alarm chime + TTS voice alert
     const result = await sendHourlyDepositReminder({
       neededToday: neededAmount,
       todayPlannedSavings: metrics.todayPlannedSavings,
@@ -379,11 +417,12 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       currentBalance: metrics.currentBalance,
       targetAmount: metrics.targetAmount,
       daysRemaining: metrics.daysRemaining,
+      targetDate: goal.target_date,
       bikeModel: goal.bike_model,
       language: voiceLanguage,
     });
 
-    // 2. Speak dynamic alert in web browser fallback (native Android handles this in background receiver)
+    // 2. Web browser fallback speech
     if (!isNativePlatform()) {
       setTimeout(() => {
         speakDynamicAlert({
@@ -394,6 +433,7 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           currentBalance: metrics.currentBalance,
           targetAmount: metrics.targetAmount,
           daysRemaining: metrics.daysRemaining,
+          targetDate: goal.target_date,
           bikeModel: goal.bike_model,
           language: voiceLanguage,
         }).catch(() => {});
@@ -401,11 +441,11 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     return result;
-  }, [metrics, goal.bike_model, voiceLanguage]);
+  }, [metrics, goal.bike_model, goal.target_date, voiceLanguage]);
 
   const scheduleBackgroundHourlyTestCallback = useCallback(async (delaySeconds: number = 10) => {
     const needed = Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings);
-    return scheduleBackgroundHourlyTest({
+    const res = await scheduleBackgroundHourlyTest({
       delaySeconds,
       neededToday: needed > 0 ? needed : metrics.todayPlannedSavings,
       todayPlannedSavings: metrics.todayPlannedSavings,
@@ -414,10 +454,13 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       currentBalance: metrics.currentBalance,
       targetAmount: metrics.targetAmount,
       daysRemaining: metrics.daysRemaining,
+      targetDate: goal.target_date,
       bikeModel: goal.bike_model,
       language: voiceLanguage,
     });
-  }, [metrics, goal.bike_model, voiceLanguage]);
+    await refreshBackgroundStatus();
+    return res;
+  }, [metrics, goal.bike_model, goal.target_date, voiceLanguage, refreshBackgroundStatus]);
 
   // Loan calculation
   const loanCalculation = useMemo(() => {
@@ -429,7 +472,7 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     );
   }, [loanPlan]);
 
-  // Sync Hourly Reminder configuration with Service Worker
+  // Sync Hourly Reminder configuration with Native Android Engine & Service Worker
   useEffect(() => {
     const neededToday = Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings);
     syncHourlyReminderWithServiceWorker({
@@ -437,29 +480,43 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       todayPlannedSavings: metrics.todayPlannedSavings,
       todayActualSavings: metrics.todayActualSavings,
       neededToday,
+      remainingAmount: metrics.remainingAmount,
+      currentBalance: metrics.currentBalance,
+      targetAmount: metrics.targetAmount,
+      daysRemaining: metrics.daysRemaining,
+      targetDate: goal.target_date,
       todayDate: getTodayString(),
       bikeModel: goal.bike_model,
+      language: voiceLanguage,
       intervalMinutes: 60,
       quietHoursEnabled,
       quietHoursStart: 23,
       quietHoursEnd: 8,
+    }).then((st) => {
+      if (st) setBackgroundStatus(st);
     });
   }, [
     notificationsEnabled,
     hourlyRemindersEnabled,
     quietHoursEnabled,
+    voiceLanguage,
     metrics.todayPlannedSavings,
     metrics.todayActualSavings,
+    metrics.remainingAmount,
+    metrics.currentBalance,
+    metrics.targetAmount,
+    metrics.daysRemaining,
+    goal.target_date,
     goal.bike_model,
   ]);
 
-  // In-page Hourly Watchdog: Checks periodically if today's deposit is pending
+  // Web/PWA Only Watchdog: Android Native uses persistent AlarmClock + ForegroundService
   useEffect(() => {
+    if (isNativePlatform()) return;
     if (!notificationsEnabled || !hourlyRemindersEnabled) return;
 
     const checkHourlyStatus = () => {
       const neededToday = Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings);
-      // If already saved or deposited today, do not alert
       if (neededToday <= 0) return;
 
       if (quietHoursEnabled) {
@@ -469,7 +526,6 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const lastAlert = Number(localStorage.getItem('hunter_fund_last_hourly_alert')) || 0;
       const now = Date.now();
-      // Send reminder if >= 55 minutes have passed since last hourly alert
       if (now - lastAlert >= 55 * 60 * 1000) {
         localStorage.setItem('hunter_fund_last_hourly_alert', now.toString());
         sendHourlyDepositReminder({
@@ -480,6 +536,7 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           currentBalance: metrics.currentBalance,
           targetAmount: metrics.targetAmount,
           daysRemaining: metrics.daysRemaining,
+          targetDate: goal.target_date,
           bikeModel: goal.bike_model,
           language: voiceLanguage,
         });
@@ -499,6 +556,7 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     metrics.currentBalance,
     metrics.targetAmount,
     metrics.daysRemaining,
+    goal.target_date,
     goal.bike_model,
   ]);
 
@@ -527,7 +585,8 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     window.addEventListener('hunter-open-quick-add', handleCustomOpen);
 
-    // Register native notification tap listener on Android & request permission
+    // Register native notification tap listener on Android, request permission & monitor resume
+    let appStateListener: { remove: () => Promise<void> } | null = null;
     if (isNativePlatform()) {
       registerNativeNotificationActions(() => {
         setIsQuickAddOpen(true);
@@ -537,6 +596,14 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           setNotificationsEnabledState(true);
           localStorage.setItem('hunter_fund_notifications', 'true');
         }
+        refreshBackgroundStatus();
+      });
+      CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+        if (isActive) {
+          refreshBackgroundStatus();
+        }
+      }).then((handle) => {
+        appStateListener = handle;
       });
     }
 
@@ -545,8 +612,9 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         navigator.serviceWorker.removeEventListener('message', handleSwMessage);
       }
       window.removeEventListener('hunter-open-quick-add', handleCustomOpen);
+      appStateListener?.remove();
     };
-  }, []);
+  }, [refreshBackgroundStatus]);
 
   // Celebration helper
   const triggerCelebration = useCallback(() => {
@@ -629,7 +697,7 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (crossedMilestone) {
         triggerCelebration();
         if (notificationsEnabled) {
-          sendMilestoneNotification(crossedMilestone.amount).catch(() => {});
+          sendMilestoneNotification(crossedMilestone.amount, voiceLanguage).catch(() => {});
         }
       }
 
@@ -650,7 +718,7 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       return newTx;
     },
-    [metrics.currentBalance, isSupabaseOnline, triggerCelebration]
+    [metrics.currentBalance, isSupabaseOnline, triggerCelebration, notificationsEnabled, voiceLanguage]
   );
 
   const editTransaction = useCallback(
@@ -907,6 +975,11 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         scheduleBackgroundHourlyTest: scheduleBackgroundHourlyTestCallback,
         voiceLanguage,
         setVoiceLanguage,
+        backgroundStatus,
+        refreshBackgroundStatus,
+        requestBatteryUnrestricted,
+        openAlarmPermissionSettings,
+        openNotificationPermissionSettings,
       }}
     >
       {children}

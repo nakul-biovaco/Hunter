@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { Capacitor } from '@capacitor/core';
 import {
   Download,
   Database,
@@ -13,6 +14,9 @@ import {
   Smartphone,
   Clock,
   Volume2,
+  ShieldCheck,
+  AlertTriangle,
+  BatteryCharging,
 } from 'lucide-react';
 import { useHunter } from '../../context/HunterContext';
 import { Button } from '../common/Button';
@@ -42,6 +46,11 @@ export const SettingsView: React.FC = () => {
     scheduleBackgroundHourlyTest,
     voiceLanguage,
     setVoiceLanguage,
+    backgroundStatus,
+    refreshBackgroundStatus,
+    requestBatteryUnrestricted,
+    openAlarmPermissionSettings,
+    openNotificationPermissionSettings,
   } = useHunter();
 
   const [targetAmount, setTargetAmount] = useState(String(goal.target_amount));
@@ -56,7 +65,20 @@ export const SettingsView: React.FC = () => {
   const [copiedSql, setCopiedSql] = useState(false);
   const [notificationStatusMsg, setNotificationStatusMsg] = useState<string>('');
 
-  const currentPermission = typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported';
+  const isNative = Capacitor.isNativePlatform();
+  const currentPermission = isNative
+    ? backgroundStatus?.notificationsEnabled === false
+      ? 'denied'
+      : 'granted'
+    : typeof window !== 'undefined' && 'Notification' in window
+    ? Notification.permission
+    : 'unsupported';
+
+  useEffect(() => {
+    if (isNative) {
+      refreshBackgroundStatus();
+    }
+  }, [isNative, refreshBackgroundStatus]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -476,12 +498,16 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
               Personalized speech and notification language:
             </p>
             <div className="grid grid-cols-2 gap-2 pt-1">
-              {[
-                { id: 'hinglish', label: 'Hinglish', desc: 'लीना जी, आज ₹1,071 जमा...' },
-                { id: 'hindi', label: 'Hindi (हिंदी)', desc: 'नमस्ते लीना जी! आज ₹1,071...' },
-                { id: 'marathi', label: 'Marathi (मराठी)', desc: 'नमस्कार लीना ताई! आज ₹1,071...' },
-                { id: 'english', label: 'English', desc: 'Hello Leena! Today ₹1,071...' },
-              ].map((opt) => (
+              {(() => {
+                const neededPreview = Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings) || metrics.todayPlannedSavings;
+                const amtText = neededPreview.toLocaleString('en-IN');
+                return [
+                  { id: 'hinglish', label: 'Hinglish', desc: `लीना जी, आज ₹${amtText} जमा...` },
+                  { id: 'hindi', label: 'Hindi (हिंदी)', desc: `नमस्ते लीना जी! आज ₹${amtText}...` },
+                  { id: 'marathi', label: 'Marathi (मराठी)', desc: `नमस्कार लीना ताई! आज ₹${amtText}...` },
+                  { id: 'english', label: 'English', desc: `Hello Leena! Today ₹${amtText}...` },
+                ];
+              })().map((opt) => (
                 <button
                   key={opt.id}
                   type="button"
@@ -500,6 +526,88 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
           </div>
         </div>
 
+        {/* Native Android Background Reliability Status & Samsung Guard */}
+        {isNative && backgroundStatus && (
+          <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                <p className="text-xs font-bold text-slate-900">Background Engine Status (Killed-App Ready)</p>
+              </div>
+              {backgroundStatus.nextAlarmAt > 0 && notificationsEnabled && hourlyRemindersEnabled && (
+                <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                  Next: {new Date(backgroundStatus.nextAlarmAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-1.5 text-[11px]">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">Push & Lockscreen Notifications</span>
+                {backgroundStatus.notificationsEnabled ? (
+                  <span className="text-emerald-700 font-bold flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Allowed
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={openNotificationPermissionSettings}
+                    className="text-rose-700 font-bold underline"
+                  >
+                    Allow Now
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">Exact Alarm Clock (Doze Bypass)</span>
+                {backgroundStatus.canScheduleExactAlarms ? (
+                  <span className="text-emerald-700 font-bold flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Armed
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={openAlarmPermissionSettings}
+                    className="text-amber-700 font-bold underline"
+                  >
+                    Enable Exact Alarm
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600 flex items-center gap-1">
+                  <BatteryCharging className="w-3.5 h-3.5 text-slate-500" />
+                  Background Battery (Unrestricted)
+                </span>
+                {backgroundStatus.ignoringBatteryOptimizations ? (
+                  <span className="text-emerald-700 font-bold flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Unrestricted
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={requestBatteryUnrestricted}
+                    className="px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 font-bold border border-amber-300"
+                  >
+                    Set Unrestricted
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {!backgroundStatus.ignoringBatteryOptimizations && (
+              <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-2 flex items-start gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>
+                  Samsung phones may sleep killed apps unless Battery is <strong>Unrestricted</strong>. Tap <strong>Set Unrestricted</strong> above for PhonePe-level background delivery.
+                </span>
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Test Buttons */}
         <div className="pt-1 space-y-2">
           <p className="text-[11px] text-slate-500">
@@ -514,9 +622,9 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
               onClick={async () => {
                 const res = await testHourlyReminder();
                 if (res.permission === 'denied') {
-                  setNotificationStatusMsg('Notifications are blocked. Click the lock icon in the address bar and select "Allow".');
+                  setNotificationStatusMsg('Notifications are blocked. Tap Allow in App Notification settings.');
                 } else {
-                  setNotificationStatusMsg(`Test notification sent (Amount: ₹${(Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings) || metrics.todayPlannedSavings).toLocaleString('en-IN')}).`);
+                  setNotificationStatusMsg(`Loud alarm & voice sent (Amount: ₹${(Math.max(0, metrics.todayPlannedSavings - metrics.todayActualSavings) || metrics.todayPlannedSavings).toLocaleString('en-IN')}).`);
                 }
                 setTimeout(() => setNotificationStatusMsg(''), 6000);
               }}
@@ -532,14 +640,14 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
               onClick={async () => {
                 const res = await scheduleBackgroundHourlyTest(10);
                 if (res.permission === 'denied') {
-                  setNotificationStatusMsg('Notifications are blocked in your browser. Click the lock icon to allow.');
+                  setNotificationStatusMsg('Notifications are blocked. Allow notifications first.');
                 } else {
-                  setNotificationStatusMsg('Scheduled! Minimize or lock your screen now to see the background notification in 10s.');
+                  setNotificationStatusMsg('Armed! Swipe/kill the app or lock screen — loud alarm & TTS arrives in 10s.');
                 }
-                setTimeout(() => setNotificationStatusMsg(''), 9000);
+                setTimeout(() => setNotificationStatusMsg(''), 10000);
               }}
             >
-              Background (10s)
+              Kill-Test (10s)
             </Button>
           </div>
         </div>
@@ -552,7 +660,19 @@ CREATE POLICY "Users can view/modify own checklist" ON public.purchase_checklist
 
         {currentPermission === 'denied' && (
           <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-800">
-            <strong>Notifications Blocked:</strong> Click the lock icon 🔒 in your browser address bar and change Notifications to <strong>"Allow"</strong>.
+            {isNative ? (
+              <span>
+                <strong>Notifications Disabled:</strong>{' '}
+                <button type="button" onClick={openNotificationPermissionSettings} className="underline font-bold">
+                  Tap here to enable Notifications
+                </button>{' '}
+                in Android App Settings.
+              </span>
+            ) : (
+              <span>
+                <strong>Notifications Blocked:</strong> Click the lock icon 🔒 in your browser address bar and change Notifications to <strong>"Allow"</strong>.
+              </span>
+            )}
           </div>
         )}
       </div>

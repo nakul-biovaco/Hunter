@@ -9,7 +9,8 @@ import {
   sendNativeTestNotification,
   sendNativeMilestoneNotification,
   sendNativeDailyReminder,
-  scheduleHourlyReminders,
+  syncNativeReminderEngine,
+  triggerNativeDepositAlert,
   cancelHourlyReminders,
   scheduleNativeBackgroundTest,
   generateSmartNotificationCopy,
@@ -17,6 +18,7 @@ import {
   SmartNotificationData,
   VoiceLanguage,
 } from './native-notifications';
+import type { BackgroundStatus } from './hunter-alarm-plugin';
 
 export { speakDynamicAlert };
 export type { VoiceLanguage };
@@ -26,8 +28,14 @@ export interface HourlyReminderState {
   todayPlannedSavings: number;
   todayActualSavings: number;
   neededToday: number;
+  remainingAmount?: number;
+  currentBalance?: number;
+  targetAmount?: number;
+  daysRemaining?: number;
+  targetDate?: string;
   todayDate: string;
   bikeModel: string;
+  language?: VoiceLanguage;
   intervalMinutes?: number;
   quietHoursEnabled: boolean;
   quietHoursStart?: number;
@@ -99,9 +107,15 @@ export async function sendNotification({
     );
   }
 
-  // Native platform: use Capacitor Local Notifications
+  // Native platform: use HunterAlarm / ForegroundService Engine
   if (isNativePlatform()) {
-    const success = await sendNativeNotification({ title, body, extra: data });
+    const success = await sendNativeNotification({
+      title,
+      body,
+      speechText: data?.speechText,
+      ttsLang: data?.ttsLang,
+      playAlarm: true,
+    });
     return {
       success,
       permission: 'granted',
@@ -197,28 +211,30 @@ export async function sendNotification({
 }
 
 /**
- * Syncs hourly reminder state with the Service Worker background daemon.
+ * Syncs hourly reminder state with Android Native Engine (or Service Worker on Web/PWA).
  */
-export async function syncHourlyReminderWithServiceWorker(state: HourlyReminderState): Promise<void> {
-  // Native platform: schedule native hourly reminders
+export async function syncHourlyReminderWithServiceWorker(state: HourlyReminderState): Promise<BackgroundStatus | null> {
+  // Native platform: sync state & arm AlarmClock hourly chain in Android SharedPreferences
   if (isNativePlatform()) {
-    if (state.enabled && state.neededToday > 0) {
-      await scheduleHourlyReminders({
-        neededToday: state.neededToday,
-        todayPlannedSavings: state.todayPlannedSavings,
-        todayActualSavings: state.todayActualSavings,
-        bikeModel: state.bikeModel,
-        quietHoursEnabled: state.quietHoursEnabled,
-        quietHoursStart: state.quietHoursStart ?? 23,
-        quietHoursEnd: state.quietHoursEnd ?? 8,
-      });
-    } else {
-      await cancelHourlyReminders();
-    }
-    return;
+    return await syncNativeReminderEngine({
+      enabled: state.enabled,
+      neededToday: state.neededToday,
+      todayPlannedSavings: state.todayPlannedSavings,
+      todayActualSavings: state.todayActualSavings,
+      remainingAmount: state.remainingAmount,
+      currentBalance: state.currentBalance,
+      targetAmount: state.targetAmount,
+      daysRemaining: state.daysRemaining,
+      targetDate: state.targetDate,
+      bikeModel: state.bikeModel,
+      language: state.language || 'hinglish',
+      quietHoursEnabled: state.quietHoursEnabled,
+      quietHoursStart: state.quietHoursStart ?? 23,
+      quietHoursEnd: state.quietHoursEnd ?? 8,
+    });
   }
 
-  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return null;
 
   try {
     const reg = await navigator.serviceWorker.ready;
@@ -245,6 +261,7 @@ export async function syncHourlyReminderWithServiceWorker(state: HourlyReminderS
   } catch (err) {
     console.warn('Could not sync reminder with service worker:', err);
   }
+  return null;
 }
 
 /**
@@ -258,6 +275,7 @@ export async function sendHourlyDepositReminder({
   currentBalance,
   targetAmount,
   daysRemaining,
+  targetDate,
   bikeModel = 'Royal Enfield Hunter 350',
   language = 'hinglish',
 }: {
@@ -268,9 +286,30 @@ export async function sendHourlyDepositReminder({
   currentBalance?: number;
   targetAmount?: number;
   daysRemaining?: number;
+  targetDate?: string;
   bikeModel?: string;
   language?: VoiceLanguage;
 }): Promise<NotificationResult> {
+  if (isNativePlatform()) {
+    const success = await triggerNativeDepositAlert({
+      neededToday,
+      todayPlannedSavings,
+      todayActualSavings,
+      remainingAmount,
+      currentBalance,
+      targetAmount,
+      daysRemaining,
+      targetDate,
+      bikeModel,
+      language,
+    });
+    return {
+      success,
+      permission: 'granted',
+      message: success ? 'Loud alarm & voice alert triggered.' : 'Failed to trigger native alert.',
+    };
+  }
+
   const { title, body, needed, speechText, ttsLang } = generateSmartNotificationCopy({
     neededToday,
     todayPlannedSavings,
@@ -279,6 +318,7 @@ export async function sendHourlyDepositReminder({
     currentBalance,
     targetAmount,
     daysRemaining,
+    targetDate,
     bikeModel,
     language,
   });
@@ -304,6 +344,7 @@ export async function scheduleBackgroundHourlyTest({
   currentBalance,
   targetAmount,
   daysRemaining,
+  targetDate,
   bikeModel = 'Royal Enfield Hunter 350',
   language = 'hinglish',
 }: {
@@ -315,6 +356,7 @@ export async function scheduleBackgroundHourlyTest({
   currentBalance?: number;
   targetAmount?: number;
   daysRemaining?: number;
+  targetDate?: string;
   bikeModel?: string;
   language?: VoiceLanguage;
 }): Promise<NotificationResult> {
@@ -329,6 +371,7 @@ export async function scheduleBackgroundHourlyTest({
       currentBalance,
       targetAmount,
       daysRemaining,
+      targetDate,
       bikeModel,
       language,
     });
@@ -409,9 +452,9 @@ export async function scheduleBackgroundNotification(delaySeconds: number = 6): 
   });
 }
 
-export async function sendTestNotification(): Promise<NotificationResult> {
+export async function sendTestNotification(language: VoiceLanguage = 'hinglish'): Promise<NotificationResult> {
   if (isNativePlatform()) {
-    const success = await sendNativeTestNotification();
+    const success = await sendNativeTestNotification(language);
     return { success, permission: 'granted', message: success ? 'Test notification sent.' : 'Failed to send test notification.' };
   }
   return sendNotification({
@@ -421,9 +464,12 @@ export async function sendTestNotification(): Promise<NotificationResult> {
   });
 }
 
-export async function sendMilestoneNotification(milestoneAmount: number): Promise<NotificationResult> {
+export async function sendMilestoneNotification(
+  milestoneAmount: number,
+  language: VoiceLanguage = 'hinglish'
+): Promise<NotificationResult> {
   if (isNativePlatform()) {
-    const success = await sendNativeMilestoneNotification(milestoneAmount);
+    const success = await sendNativeMilestoneNotification(milestoneAmount, language);
     return { success, permission: 'granted', message: success ? 'Milestone notification sent.' : 'Failed.' };
   }
   return sendNotification({

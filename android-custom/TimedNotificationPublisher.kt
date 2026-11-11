@@ -8,24 +8,18 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import android.os.PowerManager
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
+import androidx.core.content.ContextCompat
 import com.getcapacitor.JSObject
 import com.getcapacitor.Logger
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 /**
  * Creates a notification from a timer event. Registered as a broadcast receiver
  * in AndroidManifest.
- * 
- * Enhanced with Native Background Text-to-Speech:
- * Plays loud alarm chime followed by natural Indian voice alerts for Leena Mundhada
- * even when the app is swiped away from Recents, background killed, or device is locked.
+ *
+ * Delegates voice playback cleanly to HunterAlertService ForegroundService if invoked
+ * via Capacitor LocalNotifications so TTS never gets killed by BroadcastReceiver limits.
  */
 class TimedNotificationPublisher : BroadcastReceiver() {
 
@@ -49,133 +43,28 @@ class TimedNotificationPublisher : BroadcastReceiver() {
         val storage = NotificationStorage(context)
         val notificationJson = storage.getSavedNotificationAsJSObject(id.toString())
         LocalNotificationsPlugin.fireReceived(notificationJson)
-        
-        // 1. Post notification banner (triggers loud hunter_alert.wav chime)
-        notificationManager.notify(id, notification)
-        
-        // 2. Speak dynamic alert in background even if app is closed/killed
-        speakNativeAlert(context, notificationJson)
-        
-        rescheduleNotificationIfNeeded(context, intent, id)
-    }
 
-    /**
-     * Speaks dynamic alert with live amounts in Indian accent using native Android TTS.
-     * Uses goAsync() and Partial WakeLock to ensure audio completes reliably even when killed or locked.
-     */
-    private fun speakNativeAlert(context: Context, notificationJson: JSObject?) {
         val extra = notificationJson?.optJSONObject("extra")
-        val speechText = extra?.optString("speechText", null) ?: notificationJson?.optString("body", null)
-        if (speechText.isNullOrBlank()) return
-
-        val ttsLang = extra?.optString("ttsLang", "hi-IN") ?: "hi-IN"
-        val pendingResult = goAsync()
-        val appContext = context.applicationContext
-
-        // Keep CPU awake while TTS finishes speaking
-        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "HunterFund:TTSWakeLock")
-        try {
-            wakeLock?.acquire(15000)
-        } catch (e: Exception) {
-            Logger.warn("HunterTTS", "Failed to acquire wake lock: ${e.message}")
+        val speechText = extra?.optString("speechText", "") ?: ""
+        if (speechText.isNotBlank()) {
+            try {
+                val serviceIntent = Intent()
+                serviceIntent.setClassName(context.packageName, "com.hunterfund.app.HunterAlertService")
+                serviceIntent.putExtra("extra_title", notificationJson?.optString("title", "Hunter Fund — Reminder"))
+                serviceIntent.putExtra("extra_body", notificationJson?.optString("body", ""))
+                serviceIntent.putExtra("extra_speech_text", speechText)
+                serviceIntent.putExtra("extra_tts_lang", extra?.optString("ttsLang", "hi-IN") ?: "hi-IN")
+                serviceIntent.putExtra("extra_play_alarm", true)
+                ContextCompat.startForegroundService(context, serviceIntent)
+                rescheduleNotificationIfNeeded(context, intent, id)
+                return
+            } catch (e: Exception) {
+                Logger.warn("HunterTTS", "Service launch fallback to banner: ${e.message}")
+            }
         }
 
-        val handler = Handler(Looper.getMainLooper())
-
-        // Delay 1200ms so the 1.8s loud alarm chime plays first without overlap
-        handler.postDelayed({
-            var tts: TextToSpeech? = null
-            var isFinished = false
-
-            val finishCleanup = Runnable {
-                if (!isFinished) {
-                    isFinished = true
-                    try {
-                        tts?.stop()
-                        tts?.shutdown()
-                    } catch (e: Exception) {}
-                    try {
-                        if (wakeLock?.isHeld == true) {
-                            wakeLock.release()
-                        }
-                    } catch (e: Exception) {}
-                    try {
-                        pendingResult.finish()
-                    } catch (e: Exception) {}
-                }
-            }
-
-            // 15 seconds safety timeout
-            handler.postDelayed(finishCleanup, 14000)
-
-            try {
-                tts = TextToSpeech(appContext) { status ->
-                    if (status == TextToSpeech.SUCCESS) {
-                        try {
-                            val locale = when (ttsLang.lowercase().split("-").firstOrNull()) {
-                                "mr" -> Locale("mr", "IN")
-                                "en" -> Locale("en", "IN")
-                                else -> Locale("hi", "IN")
-                            }
-                            tts?.language = locale
-                            tts?.setSpeechRate(0.90f)
-                            tts?.setPitch(1.0f)
-
-                            val voices = tts?.voices
-                            if (voices != null) {
-                                val langTag = locale.toLanguageTag().lowercase()
-                                val langPrefix = locale.language.lowercase()
-                                val bestVoice = voices.firstOrNull { v ->
-                                    val vLang = v.locale?.toLanguageTag()?.lowercase() ?: ""
-                                    val vName = v.name.lowercase()
-                                    (vLang == langTag || vLang.startsWith(langPrefix)) &&
-                                    (vName.contains("network") || vName.contains("neural") || vName.contains("local") || vName.contains("female"))
-                                } ?: voices.firstOrNull { v ->
-                                    val vLang = v.locale?.toLanguageTag()?.lowercase() ?: ""
-                                    vLang == langTag || vLang.startsWith(langPrefix)
-                                }
-                                if (bestVoice != null) {
-                                    tts?.voice = bestVoice
-                                }
-                            }
-
-                            // Route through ALARM stream for loud and clear playback
-                            val audioAttributes = android.media.AudioAttributes.Builder()
-                                .setUsage(android.media.AudioAttributes.USAGE_ALARM)
-                                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
-                                .build()
-                            tts?.setAudioAttributes(audioAttributes)
-
-                            val params = android.os.Bundle()
-                            params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
-                            val utteranceId = "hunter_tts_" + System.currentTimeMillis()
-
-                            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                                override fun onStart(utteranceId: String?) {}
-                                override fun onDone(utteranceId: String?) {
-                                    handler.post(finishCleanup)
-                                }
-                                override fun onError(utteranceId: String?) {
-                                    handler.post(finishCleanup)
-                                }
-                            })
-
-                            tts?.speak(speechText, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
-                        } catch (e: Exception) {
-                            Logger.error("HunterTTS", "TTS speak error: ${e.message}", e)
-                            handler.post(finishCleanup)
-                        }
-                    } else {
-                        Logger.warn("HunterTTS", "TTS init failed with status: $status")
-                        handler.post(finishCleanup)
-                    }
-                }
-            } catch (e: Exception) {
-                Logger.error("HunterTTS", "TTS constructor error: ${e.message}", e)
-                handler.post(finishCleanup)
-            }
-        }, 1200)
+        notificationManager.notify(id, notification)
+        rescheduleNotificationIfNeeded(context, intent, id)
     }
 
     private fun rescheduleNotificationIfNeeded(context: Context, intent: Intent, id: Int): Boolean {
@@ -202,7 +91,7 @@ class TimedNotificationPublisher : BroadcastReceiver() {
             }
             alarmManager.set(AlarmManager.RTC, trigger, pendingIntent)
         }
-        val sdf = SimpleDateFormat("yyyy/MM/dd HH:mm:ss")
+        val sdf = SimpleDateFormat("yyyy/MM/dd HH:mm:ss", java.util.Locale.US)
         Logger.debug(Logger.tags("LN"), "notification " + id + " will next fire at " + sdf.format(Date(trigger)))
         return true
     }
@@ -212,4 +101,3 @@ class TimedNotificationPublisher : BroadcastReceiver() {
         const val CRON_KEY = "NotificationPublisher.cron"
     }
 }
-

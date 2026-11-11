@@ -1,4 +1,5 @@
 import { Transaction, SavingsGoal, CalculationMetrics } from '../types';
+import { getTodayString } from './formatters';
 
 /**
  * Calculates calendar days difference between today and a target date in Asia/Kolkata context.
@@ -25,7 +26,7 @@ export function calculateMetrics(
   transactions: Transaction[],
   currentDateStr?: string
 ): CalculationMetrics {
-  const today = currentDateStr || new Date().toISOString().split('T')[0];
+  const today = currentDateStr || getTodayString();
 
   // 1. Calculate Ledger Totals
   let totalDeposits = 0;
