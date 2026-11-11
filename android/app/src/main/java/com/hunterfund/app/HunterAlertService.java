@@ -63,6 +63,7 @@ public class HunterAlertService extends Service {
     private String currentBody = "";
     private String currentSpeechText = "";
     private String currentTtsLang = "hi-IN";
+    private boolean currentPlayAlarm = true;
 
     private boolean chimeFinished = false;
     private boolean ttsReady = false;
@@ -118,6 +119,7 @@ public class HunterAlertService extends Service {
         }
 
         boolean playAlarm = intent == null || intent.getBooleanExtra(EXTRA_PLAY_ALARM, true);
+        currentPlayAlarm = playAlarm;
 
         // 1. Immediately promote to Foreground so Android never throws ForegroundServiceDidNotStartInTimeException
         Notification activeNotif = HunterAlarmScheduler.buildRichNotification(
@@ -149,12 +151,15 @@ public class HunterAlertService extends Service {
         hasSpoken = false;
         triedDefaultEngine = false;
 
-        // Global 28s safety timeout so service NEVER stays stuck running forever
-        mainHandler.postDelayed(() -> finishAndStop(myGen), 28_000L);
+        // Global 35s safety timeout (opening chime + full TTS + closing outro chime)
+        mainHandler.postDelayed(() -> finishAndStop(myGen), 35_000L);
 
-        // 3. Start loud chime & initialize Google TTS in parallel
+        // 3. Start loud opening chime & initialize Google TTS in parallel
         if (playAlarm) {
-            startAlarmChime(myGen);
+            playRawChime(myGen, R.raw.hunter_alert, () -> {
+                chimeFinished = true;
+                mainHandler.postDelayed(() -> maybeStartSpeech(myGen), 160L);
+            });
         }
 
         if (!TextUtils.isEmpty(currentSpeechText)) {
@@ -166,12 +171,22 @@ public class HunterAlertService extends Service {
         return START_NOT_STICKY;
     }
 
-    private void startAlarmChime(final int myGen) {
+    private void playRawChime(final int myGen, final int rawResId, final Runnable onDoneCallback) {
+        if (myGen != generation) return;
+        releaseMediaPlayerOnly();
+
+        final boolean[] completed = {false};
+        final Runnable completeOnce = () -> {
+            if (myGen != generation || completed[0]) return;
+            completed[0] = true;
+            releaseMediaPlayerOnly();
+            onDoneCallback.run();
+        };
+
         try {
-            AssetFileDescriptor afd = getResources().openRawResourceFd(R.raw.hunter_alert);
+            AssetFileDescriptor afd = getResources().openRawResourceFd(rawResId);
             if (afd == null) {
-                chimeFinished = true;
-                maybeStartSpeech(myGen);
+                completeOnce.run();
                 return;
             }
 
@@ -187,19 +202,13 @@ public class HunterAlertService extends Service {
             mediaPlayer.setVolume(1.0f, 1.0f);
 
             mediaPlayer.setOnCompletionListener(mp -> {
-                if (myGen != generation) return;
-                Log.d(TAG, "Alarm chime completed cleanly");
-                releaseMediaPlayerOnly();
-                chimeFinished = true;
-                mainHandler.postDelayed(() -> maybeStartSpeech(myGen), 160L);
+                Log.d(TAG, "Chime completed cleanly (res=" + rawResId + ")");
+                completeOnce.run();
             });
 
             mediaPlayer.setOnErrorListener((mp, what, extra) -> {
-                if (myGen != generation) return true;
                 Log.w(TAG, "MediaPlayer chime error: " + what + "/" + extra);
-                releaseMediaPlayerOnly();
-                chimeFinished = true;
-                maybeStartSpeech(myGen);
+                completeOnce.run();
                 return true;
             });
 
@@ -208,19 +217,15 @@ public class HunterAlertService extends Service {
 
             // Safety chime timeout (2.8s)
             mainHandler.postDelayed(() -> {
-                if (myGen == generation && !chimeFinished) {
-                    Log.d(TAG, "Chime safety timer triggered");
-                    releaseMediaPlayerOnly();
-                    chimeFinished = true;
-                    maybeStartSpeech(myGen);
+                if (myGen == generation && !completed[0]) {
+                    Log.d(TAG, "Chime safety timer triggered (res=" + rawResId + ")");
+                    completeOnce.run();
                 }
             }, 2800L);
 
         } catch (Exception e) {
-            Log.e(TAG, "Failed to start chime: " + e.getMessage());
-            releaseMediaPlayerOnly();
-            chimeFinished = true;
-            maybeStartSpeech(myGen);
+            Log.e(TAG, "Failed to play chime: " + e.getMessage());
+            completeOnce.run();
         }
     }
 
@@ -293,7 +298,7 @@ public class HunterAlertService extends Service {
 
                 @Override
                 public void onDone(String utteranceId) {
-                    mainHandler.post(() -> finishAndStop(myGen));
+                    mainHandler.post(() -> onSpeechCompletedPlayOutro(myGen));
                 }
 
                 @Override
@@ -343,11 +348,25 @@ public class HunterAlertService extends Service {
         }
     }
 
+    private void onSpeechCompletedPlayOutro(final int myGen) {
+        if (myGen != generation) return;
+        releaseTtsOnly();
+        if (currentPlayAlarm) {
+            mainHandler.postDelayed(() -> {
+                if (myGen == generation) {
+                    playRawChime(myGen, R.raw.hunter_outro, () -> finishAndStop(myGen));
+                }
+            }, 180L);
+        } else {
+            finishAndStop(myGen);
+        }
+    }
+
     private void finishIfNoSpeech(final int myGen) {
         if (chimeFinished) {
             finishAndStop(myGen);
         } else {
-            // Let chime finish playing, then stop
+            // Let opening chime finish playing, then stop
             ttsReady = true;
         }
     }
@@ -397,7 +416,7 @@ public class HunterAlertService extends Service {
                 }
             }
             if (wakeLock != null && !wakeLock.isHeld()) {
-                wakeLock.acquire(30_000L);
+                wakeLock.acquire(38_000L);
             }
         } catch (Exception e) {
             Log.w(TAG, "WakeLock acquire warning: " + e.getMessage());
