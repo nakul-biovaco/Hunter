@@ -474,27 +474,6 @@ export async function registerNativeNotificationActions(
       ],
     });
     
-    // Listen for notification delivery to trigger voice smoothly after chime
-    await LocalNotifications.addListener('localNotificationReceived', (notification) => {
-      const extra = notification.extra;
-      if (extra?.speechText) {
-        setTimeout(async () => {
-          try {
-            const voiceIdx = await findBestVoiceIndex(extra.ttsLang || 'hi-IN');
-            await TextToSpeech.speak({
-              text: extra.speechText,
-              lang: extra.ttsLang || 'hi-IN',
-              rate: 0.90,
-              pitch: 1.0,
-              volume: 1.0,
-              category: 'ambient',
-              voice: voiceIdx,
-            });
-          } catch {}
-        }, 1200);
-      }
-    });
-
     // Listen for notification taps
     await LocalNotifications.addListener('localNotificationActionPerformed', (notification) => {
       const action = notification.actionId;

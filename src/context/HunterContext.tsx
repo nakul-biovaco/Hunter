@@ -383,20 +383,22 @@ export const HunterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       language: voiceLanguage,
     });
 
-    // 2. Speak dynamic alert in natural Indian voice right after the chime
-    setTimeout(() => {
-      speakDynamicAlert({
-        neededToday: neededAmount,
-        todayPlannedSavings: metrics.todayPlannedSavings,
-        todayActualSavings: metrics.todayActualSavings,
-        remainingAmount: metrics.remainingAmount,
-        currentBalance: metrics.currentBalance,
-        targetAmount: metrics.targetAmount,
-        daysRemaining: metrics.daysRemaining,
-        bikeModel: goal.bike_model,
-        language: voiceLanguage,
-      }).catch(() => {});
-    }, 1200);
+    // 2. Speak dynamic alert in web browser fallback (native Android handles this in background receiver)
+    if (!isNativePlatform()) {
+      setTimeout(() => {
+        speakDynamicAlert({
+          neededToday: neededAmount,
+          todayPlannedSavings: metrics.todayPlannedSavings,
+          todayActualSavings: metrics.todayActualSavings,
+          remainingAmount: metrics.remainingAmount,
+          currentBalance: metrics.currentBalance,
+          targetAmount: metrics.targetAmount,
+          daysRemaining: metrics.daysRemaining,
+          bikeModel: goal.bike_model,
+          language: voiceLanguage,
+        }).catch(() => {});
+      }, 1200);
+    }
 
     return result;
   }, [metrics, goal.bike_model, voiceLanguage]);
